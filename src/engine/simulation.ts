@@ -2,38 +2,65 @@ import { BALANCE, TIERS } from '@/data/balance'
 import { DILEMMAS } from '@/data/dilemmas'
 import { PASS_XP } from '@/data/economy'
 import { INSPECTIONS } from '@/data/league'
+import { RESIDENT_PROFILES } from '@/data/residents'
 import { emptyUpgradeLevels } from '@/data/upgrades'
+import { WARD_TYPE_ORDER } from '@/data/wards'
 import type {
   GameEvent,
   GameState,
   Modifiers,
   OfflineReport,
+  PrestigeState,
   ShiftAccumulator,
   ShiftEvaluation,
+  SkillId,
   StaffMember,
+  WardTypeId,
 } from '@/types'
-import { computeModifiers, offlineCapHours, tierFor } from './modifiers'
+import { maxSkillLevelFor, modifiersFor, offlineCapHours, tierFor } from './modifiers'
+import { computeDemand, syncResidents } from './residents'
 import { rand, randInt, seedFrom } from './rng'
 import { starterStaff } from './staffFactory'
 import { evaluateShift, isAvailable } from './synergy'
-import { dayNumber, isoWeekKey, isoWeekNumber, MIN_PER_HOUR, MIN_PER_SHIFT, seasonId, shiftAt } from './time'
+import {
+  dayNumber,
+  isoWeekKey,
+  isoWeekNumber,
+  MIN_PER_HOUR,
+  MIN_PER_SHIFT,
+  msUntilNextSeason,
+  msUntilNextWeek,
+  seasonId,
+  shiftAt,
+  STEP_MS,
+} from './time'
 
-export const STATE_VERSION = 1
+/** Versjon av lagringsformatet. Økes når GameState endrer form – se engine/migrate. */
+export const STATE_VERSION = 2
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
 
 /** Dyp kopi – GameState er ren JSON-data. */
 export const cloneState = (state: GameState): GameState => structuredClone(state)
 
-const newAccumulator = (minute: number): ShiftAccumulator => ({
+export const newAccumulator = (minute: number): ShiftAccumulator => ({
   shift: shiftAt(minute),
   day: dayNumber(minute),
   fagpoeng: 0,
   budget: 0,
   avvik: 0,
   coverageSum: 0,
+  focusSum: 0,
   hours: 0,
   synergyIds: [],
+})
+
+export const defaultPrestige = (): PrestigeState => ({
+  rotations: 0,
+  renomme: 0,
+  fagboker: Object.fromEntries(WARD_TYPE_ORDER.map((id) => [id, 0])) as Record<WardTypeId, number>,
+  bankedDrift: 0,
+  history: [],
 })
 
 // ---------------------------------------------------------------------------
@@ -43,11 +70,10 @@ const newAccumulator = (minute: number): ShiftAccumulator => ({
 export function createInitialState(nowMs: number, seed: number = nowMs): GameState {
   const staffList = starterStaff()
   const staff = Object.fromEntries(staffList.map((s) => [s.id, s]))
-  return {
+  const state: GameState = {
     version: STATE_VERSION,
     createdAt: nowMs,
     lastTickAt: nowMs,
-    carryMs: 0,
     minute: 0,
     rng: seedFrom(seed),
     profile: { wardName: 'Solsiden, avd. 2', county: 'Oslo', profession: 'sykepleier', onboarded: false },
@@ -57,7 +83,10 @@ export function createInitialState(nowMs: number, seed: number = nowMs): GameSta
       kaffekopper: BALANCE.start.kaffekopper,
     },
     lifetime: { budget: 0, fagpoeng: 0, shiftsCompleted: 0, dilemmasResolved: 0, sickDays: 0, recruits: 0 },
-    ward: { trivsel: BALANCE.start.trivsel, avvik: 0, avvikProgress: 0 },
+    ward: { trivsel: BALANCE.start.trivsel, avvik: 0, avvikProgress: 0, residentCounter: 0 },
+    wardType: 'sykehjem',
+    residents: [],
+    prestige: defaultPrestige(),
     staff,
     staffOrder: staffList.map((s) => s.id),
     roster: {
@@ -67,10 +96,23 @@ export function createInitialState(nowMs: number, seed: number = nowMs): GameSta
     },
     upgrades: emptyUpgradeLevels(),
     tier: 0,
-    dilemmas: { active: [{ uid: 1, defId: 'kaffekasse', postedAt: 0, tilt: -2 }], nextAt: 6 * MIN_PER_HOUR, recent: ['kaffekasse'], counter: 1 },
+    dilemmas: {
+      active: [{ uid: 1, defId: 'kaffekasse', postedAt: 0, tilt: -2 }],
+      nextAt: 6 * MIN_PER_HOUR,
+      recent: ['kaffekasse'],
+      counter: 1,
+    },
     shift: { current: newAccumulator(0), last: null, reportCounter: 0 },
-    quality: { trivsel: BALANCE.start.trivsel, avvikPerBedDay: 0.25, absence: 0, stress: 30, efficiency: 0.6, hours: 0 },
-    inspection: { weekKey: isoWeekKey(nowMs), points: 0, claimed: [] },
+    quality: {
+      trivsel: BALANCE.start.trivsel,
+      avvikPerBedDay: 0.25,
+      absence: 0,
+      stress: 30,
+      efficiency: 0.6,
+      competence: 0.6,
+      hours: 0,
+    },
+    inspection: { weekKey: isoWeekKey(nowMs), scoreSum: 0, shifts: 0, claimed: [] },
     monetization: {
       vip: false,
       seasonPass: { seasonId: seasonId(nowMs), xp: 0, premium: false, claimedFree: [], claimedPremium: [] },
@@ -82,6 +124,8 @@ export function createInitialState(nowMs: number, seed: number = nowMs): GameSta
     events: [],
     eventCounter: 0,
   }
+  syncResidents(state, modifiersFor(state), true)
+  return state
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +152,7 @@ function gainXp(d: GameState, s: StaffMember, xp: number): void {
 
 /** Oppdaterer avdelingsnivå og deler ut Kaffekopper ved opprykk. */
 export function syncTier(d: GameState): void {
-  const tier = tierFor(d.lifetime.fagpoeng)
+  const tier = tierFor(d.lifetime.fagpoeng, d.prestige.rotations)
   while (d.tier < tier) {
     d.tier++
     const def = TIERS[d.tier]
@@ -120,10 +164,14 @@ export function syncTier(d: GameState): void {
 /** Ukens tilsyn ut fra ISO-uke. */
 export const inspectionFor = (weekKey: string) => INSPECTIONS[isoWeekNumber(weekKey) % INSPECTIONS.length]
 
+/** Ukens resultat: snitt tilsynspoeng (0–100) per fullførte vakt. */
+export const inspectionAverage = (state: Pick<GameState, 'inspection'>): number =>
+  state.inspection.shifts > 0 ? state.inspection.scoreSum / state.inspection.shifts : 0
+
 /** Nullstiller ukentlig tilsyn og månedlig pass når kalenderen har gått videre. */
 export function syncCalendar(d: GameState, nowMs: number): void {
   const week = isoWeekKey(nowMs)
-  if (d.inspection.weekKey !== week) d.inspection = { weekKey: week, points: 0, claimed: [] }
+  if (d.inspection.weekKey !== week) d.inspection = { weekKey: week, scoreSum: 0, shifts: 0, claimed: [] }
   const season = seasonId(nowMs)
   if (d.monetization.seasonPass.seasonId !== season) {
     d.monetization.seasonPass = { seasonId: season, xp: 0, premium: false, claimedFree: [], claimedPremium: [] }
@@ -145,28 +193,47 @@ function spawnDilemma(d: GameState): void {
     tilt: Math.round((rand(d) * 8 - 4) * 10) / 10,
   })
   d.dilemmas.recent.push(def.id)
-  if (d.dilemmas.recent.length > 6) d.dilemmas.recent.shift()
+  if (d.dilemmas.recent.length > 10) d.dilemmas.recent.shift()
 }
 
 // ---------------------------------------------------------------------------
 // Ett simuleringssteg
 // ---------------------------------------------------------------------------
 
-interface StepTotals {
+export interface StepTotals {
   fagpoeng: number
   budget: number
   avvik: number
   shifts: number
   sick: number
+  discharged: number
+}
+
+interface SimContext {
+  mods: Modifiers
+  totals: StepTotals
+  /** Hurtigbuffer: behovet endres bare ved vaktskifte og når beboere byttes ut. */
+  demandKey: string
+  demand: Record<SkillId, number> | null
 }
 
 /**
- * Flytter spillet `dt` spillminutter fram. Steget må ligge innenfor én vakt
- * (dt går opp i 60, og minute er alltid et multiplum av steglengden).
+ * Flytter spillet ett steg (BALANCE.stepMin spillminutter) fram. Dette er den
+ * eneste veien tiden går i motoren – sanntid, offline og tidshopp er alle
+ * bare et antall slike steg, og gir derfor identisk resultat hos klient og server.
  */
-function step(d: GameState, dt: number, mods: Modifiers, totals: StepTotals): void {
+function step(d: GameState, ctx: SimContext): void {
+  const dt = BALANCE.stepMin
   const h = dt / MIN_PER_HOUR
-  const ev = evaluateShift(d, shiftAt(d.minute), mods)
+  const { mods, totals } = ctx
+  const shift = shiftAt(d.minute)
+
+  const key = `${shift}:${d.ward.residentCounter}:${d.residents.length}`
+  if (ctx.demandKey !== key || !ctx.demand) {
+    ctx.demand = computeDemand(d, shift, mods)
+    ctx.demandKey = key
+  }
+  const ev = evaluateShift(d, shift, mods, ctx.demand)
   const acc = d.shift.current
 
   // ---- Økonomi ----
@@ -215,21 +282,21 @@ function step(d: GameState, dt: number, mods: Modifiers, totals: StepTotals): vo
     }
   }
 
-  // ---- Ukens tilsyn ----
+  // ---- Ukens tilsyn: dekning på fokusområdene, samles per vakt ----
   const insp = inspectionFor(d.inspection.weekKey)
   let focus = 0
   for (const skill of insp.focus) focus += ev.coverageBySkill[skill]
-  focus /= insp.focus.length
-  d.inspection.points += focus * 10 * (ev.beds / BALANCE.baseBeds) * h
+  acc.focusSum += (focus / insp.focus.length) * h
 
   d.minute += dt
 
-  if (d.minute % MIN_PER_HOUR === 0) hourly(d, ev, mods, totals)
+  if (d.minute % MIN_PER_HOUR === 0) hourly(d, ev, ctx)
   if (d.minute % MIN_PER_SHIFT === 0) endShift(d, totals)
 }
 
 /** Hendelser som vurderes hver hele spilltime. */
-function hourly(d: GameState, ev: ShiftEvaluation, mods: Modifiers, totals: StepTotals): void {
+function hourly(d: GameState, ev: ShiftEvaluation, ctx: SimContext): void {
+  const { mods, totals } = ctx
   const onDuty = new Set(ev.present)
 
   for (const id of d.staffOrder) {
@@ -242,7 +309,7 @@ function hourly(d: GameState, ev: ShiftEvaluation, mods: Modifiers, totals: Step
     }
     // Fullført kurs
     if (s.course && d.minute >= s.course.endsAt) {
-      s.skills[s.course.skill] = Math.min(mods.maxSkillLevel, s.skills[s.course.skill] + 1)
+      s.skills[s.course.skill] = Math.min(maxSkillLevelFor(s, mods), s.skills[s.course.skill] + 1)
       s.course = null
       pushEvent(d, 'kurs', `${s.name} har fullført kurs.`)
     }
@@ -261,6 +328,15 @@ function hourly(d: GameState, ev: ShiftEvaluation, mods: Modifiers, totals: Step
     }
   }
 
+  // ---- Utskrivning og innkomst ----
+  const change = syncResidents(d, mods)
+  totals.discharged += change.discharged.length
+  for (const r of change.admitted) {
+    const out = change.discharged.find((x) => x.room === r.room)
+    const who = `${r.name} (${RESIDENT_PROFILES[r.profile].short.toLowerCase()})`
+    pushEvent(d, 'beboer', out ? `Rom ${r.room}: ${out.name} er skrevet ut. Inn: ${who}.` : `Rom ${r.room}: ${who} har flyttet inn.`)
+  }
+
   // ---- Glidende kvalitetsmålinger ----
   const q = d.quality
   const a = 1 - Math.pow(0.5, 1 / BALANCE.qualityHalfLifeHours)
@@ -269,12 +345,13 @@ function hourly(d: GameState, ev: ShiftEvaluation, mods: Modifiers, totals: Step
   for (const id of d.staffOrder) stressSum += d.staff[id].stress
   const avgStress = d.staffOrder.length ? stressSum / d.staffOrder.length : 0
   const efficiency =
-    ev.rates.wages > 0 ? Math.min(1.5, (ev.coverage * ev.beds * BALANCE.efficiencyRef) / ev.rates.wages) : 0
+    ev.rates.wages > 0 ? Math.min(1.5, (ev.coverage * ev.residents * BALANCE.efficiencyRef) / ev.rates.wages) : 0
   q.trivsel += (d.ward.trivsel - q.trivsel) * a
-  q.avvikPerBedDay += ((ev.rates.avvik * 24) / ev.beds - q.avvikPerBedDay) * a
+  q.avvikPerBedDay += ((ev.rates.avvik * 24) / Math.max(1, ev.residents) - q.avvikPerBedDay) * a
   q.absence += ((rostered ? ev.absent.length / rostered : 1) - q.absence) * a
   q.stress += (avgStress - q.stress) * a
   q.efficiency += (efficiency - q.efficiency) * a
+  q.competence += (ev.utilization - q.competence) * a
   q.hours++
 
   // ---- Nye Post-it-lapper ----
@@ -286,10 +363,15 @@ function hourly(d: GameState, ev: ShiftEvaluation, mods: Modifiers, totals: Step
   syncTier(d)
 }
 
-/** Vaktskifte: lag vaktrapport og start ny akkumulator. */
+/** Vaktskifte: lag vaktrapport, før tilsynspoeng og start ny akkumulator. */
 function endShift(d: GameState, totals: StepTotals): void {
   const acc = d.shift.current
   const avgCoverage = acc.hours > 0 ? acc.coverageSum / acc.hours : 0
+  const focus = acc.hours > 0 ? acc.focusSum / acc.hours : 0
+  const inspectionScore = clamp(focus * 100 - acc.avvik * BALANCE.inspectionAvvikPenalty, 0, 100)
+  d.inspection.scoreSum += inspectionScore
+  d.inspection.shifts++
+
   d.shift.reportCounter++
   d.shift.last = {
     id: d.shift.reportCounter,
@@ -299,6 +381,7 @@ function endShift(d: GameState, totals: StepTotals): void {
     budget: acc.budget,
     avvik: acc.avvik,
     avgCoverage,
+    inspectionScore,
     synergyIds: acc.synergyIds,
     doubled: false,
     seen: false,
@@ -321,25 +404,33 @@ export interface SimulationResult {
 }
 
 /**
- * Simulerer `gameMinutes` fram i tid og returnerer ny tilstand (input røres ikke).
- * Med `coarse` brukes timessteg der det er mulig – for offline og tidshopp.
+ * Simulerer `gameMinutes` fram i tid (rundet ned til hele steg) og returnerer
+ * ny tilstand – input røres ikke. Med `startMs` følger simuleringen også
+ * kalenderen (ukeskifte for tilsyn, månedsskifte for pass) steg for steg.
  */
-export function simulate(state: GameState, gameMinutes: number, coarse = false): SimulationResult {
+export function simulate(state: GameState, gameMinutes: number, startMs?: number): SimulationResult {
   const d = cloneState(state)
-  const totals: StepTotals = { fagpoeng: 0, budget: 0, avvik: 0, shifts: 0, sick: 0 }
-  const mods = computeModifiers(d.upgrades)
-  const fine = BALANCE.liveStepMin
-  let remaining = Math.floor(gameMinutes / fine) * fine
-  const simulated = remaining
-  while (remaining > 0) {
-    const dt =
-      coarse && remaining >= BALANCE.offlineStepMin && d.minute % BALANCE.offlineStepMin === 0
-        ? BALANCE.offlineStepMin
-        : fine
-    step(d, dt, mods, totals)
-    remaining -= dt
+  const totals: StepTotals = { fagpoeng: 0, budget: 0, avvik: 0, shifts: 0, sick: 0, discharged: 0 }
+  const ctx: SimContext = { mods: modifiersFor(d), totals, demandKey: '', demand: null }
+  const steps = Math.max(0, Math.floor(gameMinutes / BALANCE.stepMin))
+
+  let nextCalendarAt = Infinity
+  const scheduleCalendar = (t: number) => {
+    nextCalendarAt = Math.min(t + msUntilNextWeek(t), t + msUntilNextSeason(t))
   }
-  return { state: d, totals, simulated }
+  if (startMs !== undefined) scheduleCalendar(startMs)
+
+  for (let i = 0; i < steps; i++) {
+    if (startMs !== undefined) {
+      const t = startMs + i * STEP_MS
+      if (t >= nextCalendarAt) {
+        syncCalendar(d, t)
+        scheduleCalendar(t)
+      }
+    }
+    step(d, ctx)
+  }
+  return { state: d, totals, simulated: steps * BALANCE.stepMin }
 }
 
 export interface CatchUpResult {
@@ -348,55 +439,58 @@ export interface CatchUpResult {
 }
 
 /**
- * Henter spillet inn til `nowMs`. Brukes både for det løpende sekund-ticket og
- * når spilleren kommer tilbake etter fravær (begrenset av offline-bufferen).
+ * Henter spillet inn til `nowMs`. Samme funksjon for sekund-ticket og for
+ * hjemkomst etter fravær. Resultatet avhenger bare av (state, nowMs):
+ * catchUp(catchUp(s, t1), t2) er lik catchUp(s, t2) så lenge offline-bufferen
+ * ikke er sprengt, og en server kan derfor regne ut nøyaktig det samme.
+ *
+ * Returnerer samme state-objekt når ingen hele steg har gått.
  */
 export function catchUp(state: GameState, nowMs: number): CatchUpResult {
   const elapsed = nowMs - state.lastTickAt
-  if (elapsed <= 0) {
-    // Klokka er stilt tilbake – ikke gi progresjon, bare nullstill referansen.
+  if (elapsed < 0) {
+    // Klokka er stilt tilbake – ikke gi progresjon, bare flytt referansen.
     const d = cloneState(state)
     d.lastTickAt = nowMs
-    d.carryMs = 0
     return { state: d, report: null }
   }
 
   const capHours = offlineCapHours(state)
   const capMs = capHours * 3_600_000
-  const total = elapsed + state.carryMs
-  const capped = total > capMs
-  const simMs = Math.min(total, capMs)
-  const stepMs = (BALANCE.liveStepMin / BALANCE.gameMinutesPerRealSecond) * 1000
-  const steps = Math.floor(simMs / stepMs)
-  const isOffline = elapsed >= BALANCE.offlineReportMinMs
+  const capped = elapsed > capMs
+  const steps = Math.floor(Math.min(elapsed, capMs) / STEP_MS)
+  if (steps === 0) return { state, report: null }
 
   const before = state
-  const { state: d, totals } = simulate(state, steps * BALANCE.liveStepMin, isOffline)
-  d.lastTickAt = nowMs
-  d.carryMs = capped ? 0 : simMs - steps * stepMs
-  syncCalendar(d, nowMs)
+  const { state: d, totals } = simulate(state, steps * BALANCE.stepMin, state.lastTickAt)
+  // Bare hele steg flytter referansen; resten blir stående til neste kall.
+  d.lastTickAt = capped ? nowMs : state.lastTickAt + steps * STEP_MS
+  // Kalenderen følger stegtiden (ikke «nå»), så resultatet er likt uansett hvor ofte vi kalles.
+  syncCalendar(d, d.lastTickAt)
 
-  const report: OfflineReport | null = isOffline
-    ? {
-        awayMs: elapsed,
-        simulatedMs: steps * stepMs,
-        capHours,
-        capped,
-        fagpoeng: totals.fagpoeng,
-        budget: totals.budget,
-        avvik: totals.avvik,
-        shifts: totals.shifts,
-        sick: totals.sick,
-        trivselFrom: before.ward.trivsel,
-        trivselTo: d.ward.trivsel,
-        newDilemmas: Math.max(0, d.dilemmas.active.length - before.dilemmas.active.length),
-      }
-    : null
+  const report: OfflineReport | null =
+    elapsed >= BALANCE.offlineReportMinMs
+      ? {
+          awayMs: elapsed,
+          simulatedMs: steps * STEP_MS,
+          capHours,
+          capped,
+          fagpoeng: totals.fagpoeng,
+          budget: totals.budget,
+          avvik: totals.avvik,
+          shifts: totals.shifts,
+          sick: totals.sick,
+          discharged: totals.discharged,
+          trivselFrom: before.ward.trivsel,
+          trivselTo: d.ward.trivsel,
+          newDilemmas: Math.max(0, d.dilemmas.active.length - before.dilemmas.active.length),
+        }
+      : null
 
   return { state: d, report }
 }
 
 /** Evaluering av vakta som går akkurat nå – for visning i UI. */
 export function evaluateCurrentShift(state: GameState): ShiftEvaluation {
-  return evaluateShift(state, shiftAt(state.minute), computeModifiers(state.upgrades))
+  return evaluateShift(state, shiftAt(state.minute), modifiersFor(state))
 }

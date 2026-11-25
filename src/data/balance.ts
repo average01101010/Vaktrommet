@@ -1,19 +1,20 @@
-import type { Profession, Rarity, ShiftId, SkillId } from '@/types'
+import type { Profession, Rarity, ShiftId } from '@/types'
 
 /**
  * Alle balansetall samlet på ett sted. Motoren leser kun herfra, slik at
  * klient og server (validering) alltid regner likt.
  */
 export const BALANCE = {
-  version: 1,
+  version: 2,
 
   // ---- Tid ----
   /** Ett reelt sekund = fire spillminutter → én vakt (8 t) varer to minutter. */
   gameMinutesPerRealSecond: 4,
-  /** Steg i sanntid (spillminutter). Må gå opp i 60. */
-  liveStepMin: 4,
-  /** Grovere steg ved offline-/tidshopp-beregning. */
-  offlineStepMin: 60,
+  /**
+   * Fast steglengde i spillminutter – den ENESTE som brukes, både i sanntid,
+   * ved offline-innhenting og tidshopp. Må gå opp i 60.
+   */
+  stepMin: 15,
   /** Dag 1 starter kl. 07:00. */
   startMinuteOfDay: 7 * 60,
   offlineCapHours: 8,
@@ -43,11 +44,25 @@ export const BALANCE = {
   tierFagpoengBonus: 0.06,
   tierBudgetBonus: 0.05,
 
+  // ---- Beboere ----
+  /** Pleietyngde trekkes jevnt i dette intervallet ved innkomst. */
+  tyngdeMin: 0.8,
+  tyngdeMax: 1.3,
+
   // ---- Bemanning ----
-  maxCoverage: 1.25,
+  /** Overskudd utover dette gir ikke mer avlastning. */
+  surplusCap: 1.25,
   /** Hvor mye arbeidsbelastningen øker per manglende dekningsandel. */
   workloadFromGap: 1.2,
+  /** Avlastning når ALLE egenskaper er overdekket (per andel overskudd i den svakeste). */
   workloadFromSurplus: 0.8,
+  /** Uten sykepleier til stede: andel av Medisin-/Sår-kapasiteten som kan brukes. */
+  noNurseMedFactor: 0.5,
+  /** Vernepleier har legemiddelkompetanse og demper tapet noe. */
+  noNurseMedFactorVernepleier: 0.7,
+  noNurseSaarFactor: 0.75,
+  /** Høyeste egenskapsnivå uansett sjeldenhet og oppgraderinger. */
+  skillCeiling: 5,
   /** Energi der den ansatte yter fullt. Under dette faller effekten mot 50 %. */
   fullEffectEnergy: 40,
   levelEffect: 0.04,
@@ -70,12 +85,17 @@ export const BALANCE = {
   stressAfterSick: 40,
 
   // ---- Trivsel og avvik ----
-  trivselBase: 22,
+  trivselBase: 24,
   trivselFromCoverage: 58,
   /** Tidskonstant (spilltimer) for hvor raskt trivsel følger målet. */
   trivselInertiaHours: 12,
   avvikBase: 0.015,
   avvikFromGap: 0.55,
+  /** Ekstra avvik per time per udekket behovspoeng × udekket andel i Medisin/Sår. */
+  avvikCritical: 0.025,
+  /** Fradrag i trivselsmålet ved helt udekket Medisin / Sår. */
+  trivselCriticalMed: 6,
+  trivselCriticalSaar: 4,
   avvikTrivselHit: 1.2,
 
   // ---- Kurs ----
@@ -98,6 +118,26 @@ export const BALANCE = {
   qualityMinHours: 24,
   efficiencyRef: 30,
 
+  // ---- Ukens tilsyn ----
+  /** Antall fullførte vakter før ukens resultat teller. */
+  inspectionMinShifts: 24,
+  /** Trekk i vaktas tilsynspoeng per avvik. */
+  inspectionAvvikPenalty: 4,
+
+  // ---- Avdelingsrotasjon ----
+  rotationUnlockTier: 5,
+  rotationKeepStaff: 3,
+  rotationStaffCount: 6,
+  rotationKaffekopper: 50,
+  renommeBase: 2,
+  /** Ett ekstra renommé per så mange poeng på Kvalitetsindeksen. */
+  renommePerQuality: 250,
+  renommeFagpoeng: 0.03,
+  renommeBudget: 0.03,
+  fagbokMaxLevel: 3,
+  /** Nivåtersklene øker så mye per overleverte avdeling. */
+  tierScalePerRotation: 0.6,
+
   // ---- Start ----
   start: { budget: 1500, fagpoeng: 20, kaffekopper: 30, trivsel: 46 },
 } as const
@@ -108,16 +148,6 @@ export const SHIFTS: Record<ShiftId, { name: string; short: string; start: numbe
   dag: { name: 'Dagvakt', short: 'Dag', start: 7 * 60, end: 15 * 60, hours: '07:00–15:00' },
   aften: { name: 'Aftenvakt', short: 'Aften', start: 15 * 60, end: 23 * 60, hours: '15:00–23:00' },
   natt: { name: 'Nattevakt', short: 'Natt', start: 23 * 60, end: 7 * 60, hours: '23:00–07:00' },
-}
-
-/**
- * Faglig behov per vakt for en avdeling med `baseBeds` senger.
- * Skaleres lineært med antall senger.
- */
-export const SHIFT_DEMAND: Record<ShiftId, Record<SkillId, number>> = {
-  dag: { grunnstell: 8, ernaering: 5, medikament: 5, saarstell: 4, dokumentasjon: 5, miljoterapi: 4, deeskalering: 2 },
-  aften: { grunnstell: 5, ernaering: 5, medikament: 5, saarstell: 2, dokumentasjon: 3, miljoterapi: 6, deeskalering: 5 },
-  natt: { grunnstell: 3, ernaering: 0, medikament: 3, saarstell: 2, dokumentasjon: 3, miljoterapi: 2, deeskalering: 6 },
 }
 
 export const WAGE_PER_HOUR: Record<Profession, number> = {
@@ -149,9 +179,9 @@ export const TIERS: { name: string; tagline: string; fagpoeng: number; reward: n
   { name: 'Kompetansesenter', tagline: 'Prestisjetungt, faglig ledende – og fortsatt varmt.', fagpoeng: 300000, reward: 75 },
 ]
 
-/** Belønningsterskler for ukens tilsyn (tilsynspoeng). */
-export const INSPECTION_TIERS: { name: string; points: number; kaffekopper: number; passXp: number }[] = [
-  { name: 'Bestått', points: 5000, kaffekopper: 5, passXp: 60 },
-  { name: 'God praksis', points: 30000, kaffekopper: 10, passXp: 120 },
-  { name: 'Fremragende', points: 90000, kaffekopper: 20, passXp: 240 },
+/** Belønningsterskler for ukens tilsyn: snitt tilsynspoeng (0–100) per fullførte vakt. */
+export const INSPECTION_TIERS: { name: string; score: number; kaffekopper: number; passXp: number }[] = [
+  { name: 'Bestått', score: 55, kaffekopper: 5, passXp: 60 },
+  { name: 'God praksis', score: 75, kaffekopper: 10, passXp: 120 },
+  { name: 'Fremragende', score: 90, kaffekopper: 20, passXp: 240 },
 ]

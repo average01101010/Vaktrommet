@@ -11,6 +11,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Nattevakta ringte 21:40 – feber og omgangssyke. Ingen har svart på vikar-SMS-en.',
     from: 'Aftenvakta',
     color: 'gul',
+    fagligBegrunnelse:
+      'Tjenesten skal være forsvarlig bemannet hele døgnet. Samtidig setter arbeidsmiljøloven grenser for overtid og krever minst 11 timers daglig hvile. En dobbeltvakt løser natta, men øker risikoen for feil.',
+    kilde: 'Helse- og omsorgstjenesteloven § 4-1 · Arbeidsmiljøloven § 10-8',
     options: [
       {
         id: 'vikarbyraa',
@@ -42,6 +45,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Datteren til Solveig (rom 4) er opprørt. Mener mor ikke får nok hjelp ved måltidene. Vil snakke med «en som bestemmer».',
     from: 'Primærkontakten',
     color: 'rosa',
+    fagligBegrunnelse:
+      'Pårørende har rett til informasjon når pasienten samtykker, og er en viktig kilde i kartleggingen. Tidlig dialog og et dokumentert tiltak løser som regel mer enn en formell klagebehandling. En klage går først til tjenesten, deretter til Statsforvalteren.',
+    kilde: 'Pasient- og brukerrettighetsloven § 3-3 og kap. 7 · Pårørendeveilederen',
     options: [
       {
         id: 'samtale_naa',
@@ -73,6 +79,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Arne har gått ned 3 kg på en måned. Spiser to skjeer og skyver tallerkenen unna.',
     from: 'Dagvakta',
     color: 'mint',
+    fagligBegrunnelse:
+      'Beboere i sykehjem skal vurderes for ernæringsmessig risiko ved innkomst og deretter månedlig. Ufrivillig vekttap skal utløse kartlegging og en individuell ernæringsplan – næringsdrikk alene er sjelden nok.',
+    kilde: 'Nasjonal faglig retningslinje for forebygging og behandling av underernæring',
     options: [
       {
         id: 'naeringsdrikk',
@@ -104,6 +113,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Rolf (rom 6) er sint og redd, vil hjem til mor. Har slått etter to ansatte. De andre beboerne blir urolige.',
     from: 'Aftenvakta',
     color: 'rosa',
+    fagligBegrunnelse:
+      'Uro ved demens er ofte uttrykk for et udekket behov: smerte, redsel, sult eller for mange inntrykk. Miljøtiltak og skjerming skal prøves først. Beroligende legemidler er ikke førstevalg, og bruken skal evalueres.',
+    kilde: 'Nasjonal faglig retningslinje om demens · TID-modellen',
     options: [
       {
         id: 'skjerming',
@@ -136,6 +148,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Fant to Marevan for mye i dosetten til rom 3. Ikke gitt. Hvem la opp i går?',
     from: 'Nattevakta',
     color: 'gul',
+    fagligBegrunnelse:
+      'Dobbeltkontroll er hovedregelen ved istandgjøring av legemidler, og virksomheten skal ha et system for å melde, rette opp og lære av avvik. En åpen meldekultur uten syndebukker er det som hindrer neste feil.',
+    kilde: 'Legemiddelhåndteringsforskriften (rundskriv IS-7/2015) · Forskrift om ledelse og kvalitetsforbedring',
     options: [
       {
         id: 'avvik_laering',
@@ -167,6 +182,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Det er IKKE gratis kaffe! 10 kr koppen. Noen (dere vet hvem dere er) skylder for hele oktober.',
     from: 'Tillitsvalgt',
     color: 'gul',
+    fagligBegrunnelse:
+      'Det psykososiale arbeidsmiljøet er lederens ansvar. Små, rettferdige ordninger for fellesskapet på vaktrommet betyr mer for trivsel og nærvær enn man skulle tro.',
+    kilde: 'Arbeidsmiljøloven § 4-3',
     options: [
       {
         id: 'spander',
@@ -197,6 +215,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Høgskolen spør om vi kan ta imot to sykepleierstudenter i åtte uker. Fra mandag.',
     from: 'Fagutviklingssykepleier',
     color: 'bla',
+    fagligBegrunnelse:
+      'Kommunen plikter å medvirke til undervisning og praktisk opplæring av helsepersonell. God praksis krever en navngitt veileder og avsatt tid – studenter skal ikke telle som bemanning.',
+    kilde: 'Helse- og omsorgstjenesteloven § 8-1',
     options: [
       {
         id: 'ja_veiledning',
@@ -228,6 +249,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Gerd (rom 5) funnet på gulvet 03:20. Våken, klar, vondt i hofta. Sengehesten var nede.',
     from: 'Nattevakta',
     color: 'rosa',
+    fagligBegrunnelse:
+      'Etter et fall skal beboeren undersøkes før forflytning, vitale mål tas og hendelsen dokumenteres. Fallet skal føre til ny fallrisikovurdering og tiltak, og pårørende skal informeres.',
+    kilde: 'Tiltakspakke for forebygging av fall (I trygge hender 24-7)',
     options: [
       {
         id: 'vurdering',
@@ -259,6 +283,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Ønskelista til jul er full. Alle vil ha fri julaften. Ingen vil ha nyttårsnatt.',
     from: 'Deg selv',
     color: 'bla',
+    fagligBegrunnelse:
+      'Arbeidsplanen skal drøftes med de tillitsvalgte og være kjent senest to uker før den gjelder. Forutsigbar og rettferdig fordeling av helligdager forebygger både konflikter og fravær.',
+    kilde: 'Arbeidsmiljøloven § 10-3',
     options: [
       {
         id: 'rettferdig',
@@ -289,6 +316,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Rød, varm hæl hos Ingeborg (rom 1). Blekner ikke ved trykk. Hun har ligget mye siste uka.',
     from: 'Dagvakta',
     color: 'mint',
+    fagligBegrunnelse:
+      'Rødhet som ikke blekner ved trykk, er et trykksår i kategori 1. Da skal trykket fjernes med en gang, huden vurderes daglig og risikoen kartlegges, for eksempel med Braden-skalaen.',
+    kilde: 'Tiltakspakke for forebygging av trykksår (I trygge hender 24-7)',
     options: [
       {
         id: 'saarprosedyre',
@@ -321,6 +351,9 @@ export const DILEMMAS: DilemmaDef[] = [
     from: 'Nattevakta',
     color: 'bla',
     minTier: 1,
+    fagligBegrunnelse:
+      'Alarmtretthet er en kjent pasientsikkerhetsrisiko. Varslingsteknologi skal tilpasses den enkelte og evalueres jevnlig. For beboere uten samtykkekompetanse kreves det vedtak.',
+    kilde: 'Pasient- og brukerrettighetsloven § 4-6 a',
     options: [
       {
         id: 'juster',
@@ -353,6 +386,9 @@ export const DILEMMAS: DilemmaDef[] = [
     from: 'Enhetsleder',
     color: 'gul',
     minTier: 1,
+    fagligBegrunnelse:
+      'Kommunen skal sørge for forsvarlige tjenester uavhengig av budsjettsituasjonen. Lederen må kunne dokumentere kvalitet og risiko – tall på avvik, trivsel og fravær er de beste argumentene.',
+    kilde: 'Helse- og omsorgstjenesteloven § 4-1 · Forskrift om ledelse og kvalitetsforbedring',
     options: [
       {
         id: 'argumenter',
@@ -384,6 +420,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Tre beboere med oppkast siden i går. Naboavdelingen har stengt for besøk.',
     from: 'Smittevernkontakt',
     color: 'rosa',
+    fagligBegrunnelse:
+      'Ved mistenkt norovirusutbrudd isoleres de syke, og hendene vaskes med såpe og vann – hånddesinfeksjon alene er ikke nok. Syke ansatte holder seg hjemme til 48 timer etter at symptomene er over.',
+    kilde: 'FHIs råd ved norovirusutbrudd · Forskrift om smittevern i helse- og omsorgstjenesten',
     options: [
       {
         id: 'isolering',
@@ -415,6 +454,9 @@ export const DILEMMAS: DilemmaDef[] = [
     body: 'Regn, ingen besøk, og TV-en i stua viser sport ingen bryr seg om. Flere vandrer.',
     from: 'Helgevakta',
     color: 'mint',
+    fagligBegrunnelse:
+      'Meningsfull aktivitet er en del av tjenesten, ikke pynt. Beboere skal få tilbud om varierte og tilpassede aktiviteter, og musikk og fellesskap demper uro og vandring.',
+    kilde: 'Kvalitetsforskriften for pleie- og omsorgstjenestene § 3',
     options: [
       {
         id: 'sangstund',
@@ -437,6 +479,349 @@ export const DILEMMAS: DilemmaDef[] = [
         hint: 'Rolig vakt',
         effect: { trivsel: -3, energy: 5, scope: 'paaVakt' },
         outcome: 'En stille dag. Kanskje litt for stille.',
+      },
+    ],
+  },
+
+  // ---------- Faglig fordypning ----------
+  {
+    id: 'news2_forverring',
+    title: 'Noe er galt med Harald',
+    body: 'Harald (rom 7) er slapp og klam, puster fort og svarer ikke helt adekvat. «Han er ikke seg selv», sier helsefagarbeideren.',
+    from: 'Aftenvakta',
+    color: 'rosa',
+    fagligBegrunnelse:
+      'NEWS2 gir en samlet skår av respirasjonsfrekvens, oksygenmetning, blodtrykk, puls, bevissthet og temperatur, og fanger opp forverring før den blir åpenbar. ISBAR (Identifikasjon, Situasjon, Bakgrunn, Aktuell tilstand, Råd) sikrer at den som tar imot, får det som trengs for å handle.',
+    kilde: 'NEWS2 · ISBAR',
+    options: [
+      {
+        id: 'news_isbar',
+        label: 'Ta NEWS2 og ring legevakta med ISBAR',
+        hint: 'Krever sykepleier på vakt',
+        requires: { profession: 'sykepleier' },
+        effect: { fagpoeng: 40, trivsel: 3, passXp: 10 },
+        outcome: 'NEWS 7: rask pust, lav metning og nyoppstått forvirring. Legevakta fikk en ryddig rapport og sendte ambulanse. Lungebetennelse – fanget opp i tide.',
+      },
+      {
+        id: 'ring_113',
+        label: 'Ring 113 med en gang',
+        hint: 'Trygt, men uten målinger å melde',
+        effect: { budget: -400, stress: 5, scope: 'paaVakt', trivsel: 1 },
+        outcome: 'Ambulansen kom, men AMK måtte spørre tre ganger etter puls og pustefrekvens. Det gikk bra – denne gangen.',
+      },
+      {
+        id: 'se_an',
+        label: 'Se an til morgenvisitten',
+        hint: 'Han er jo ofte trøtt om kvelden',
+        effect: { avvik: 2, trivsel: -6, stress: 6, scope: 'alle' },
+        outcome: 'Klokka fem var han ikke kontaktbar. Innlagt med sepsis. Statsforvalteren ber om en redegjørelse.',
+      },
+    ],
+  },
+  {
+    id: 'motsetter_seg_stell',
+    title: 'Vil ikke dusje',
+    body: 'Kari (rom 3) har demens og har ikke dusjet på ni dager. Hun slår og roper når vi prøver. To vikarer foreslo å «bare holde henne».',
+    from: 'Dagvakta',
+    color: 'gul',
+    fagligBegrunnelse:
+      'Helsehjelp til en pasient uten samtykkekompetanse som motsetter seg hjelpen, krever at tillitsskapende tiltak er forsøkt først, at unnlatelse kan gi vesentlig helseskade, og at det fattes skriftlig vedtak. Tvang uten vedtak er ulovlig.',
+    kilde: 'Pasient- og brukerrettighetsloven kap. 4A (§ 4A-3)',
+    options: [
+      {
+        id: 'tillit',
+        label: 'Prøv tillitsskapende tiltak',
+        hint: 'Krever noen med Miljø 3+',
+        requires: { skill: { id: 'miljoterapi', min: 3 } },
+        effect: { trivsel: 5, fagpoeng: 30, stress: -3, scope: 'paaVakt' },
+        outcome: 'Kjent pleier, varmt bad med musikk etter frokost – og et håndkle over skuldrene hele veien. Kari nynnet med.',
+      },
+      {
+        id: 'vedtak',
+        label: 'Dokumentér forsøkene og drøft vedtak med legen',
+        hint: 'Krever noen med Dok. 3+',
+        requires: { skill: { id: 'dokumentasjon', min: 3 } },
+        effect: { fagpoeng: 40, passXp: 10, energy: -5, scope: 'paaVakt' },
+        outcome: 'Samtykkekompetansen ble vurdert, tiltakene journalført, og det ble fattet vedtak om nødvendig stell. Pårørende fikk kopi og informasjon om klageretten.',
+      },
+      {
+        id: 'hold',
+        label: 'Hold henne og få det gjort',
+        hint: 'Raskt og effektivt',
+        effect: { avvik: 2, trivsel: -6, stress: 5, scope: 'paaVakt' },
+        outcome: 'Kari ble ren. Hun ble også redd for dusjrommet – og for dere. Tvang uten vedtak er lovbrudd, og avviket er meldt.',
+      },
+    ],
+  },
+  {
+    id: 'delirium_natt',
+    title: 'Plutselig forvirret',
+    body: 'Einar (rom 6) var klar i går. I natt drar han i lakenet, ser «folk i gardina» og vil ut. Datteren er skremt.',
+    from: 'Nattevakta',
+    color: 'rosa',
+    fagligBegrunnelse:
+      'Akutt forvirring (delirium) er en medisinsk akuttilstand med en utløsende årsak – ofte infeksjon, smerte, urinretensjon, dehydrering eller legemidler. Finn og behandle årsaken; beroligende legemidler kan forverre tilstanden hos eldre.',
+    kilde: '4AT (screening for delirium)',
+    options: [
+      {
+        id: 'kartlegg',
+        label: 'Let etter årsaken: infeksjon, smerte, full blære',
+        hint: 'Krever sykepleier på vakt',
+        requires: { profession: 'sykepleier' },
+        effect: { fagpoeng: 40, trivsel: 4 },
+        outcome: 'Blæra inneholdt 700 ml. Etter tømming og smertelindring roet han seg, og legen fulgte opp urinveisinfeksjonen neste morgen.',
+      },
+      {
+        id: 'skjerm',
+        label: 'Skjerm, demp lyset og sitt hos ham',
+        hint: 'Krever noen med Ro 3+',
+        requires: { skill: { id: 'deeskalering', min: 3 } },
+        effect: { trivsel: 3, fagpoeng: 20, energy: -6, scope: 'paaVakt' },
+        outcome: 'En fast person, nattlampe og rolig stemme hjalp gjennom natta. Men årsaken er fortsatt ikke funnet.',
+      },
+      {
+        id: 'sovemedisin',
+        label: 'Gi noe å sove på',
+        hint: 'Så får alle ro',
+        effect: { avvik: 1, trivsel: -4 },
+        outcome: 'Han sov. Dagen etter var han mer forvirret, ustø – og falt på vei til badet.',
+      },
+    ],
+  },
+  {
+    id: 'dysfagi_hoste',
+    title: 'Hoster ved måltid',
+    body: 'Astrid (rom 2) hoster og får våt stemme når hun drikker. Hun har hatt feber to ganger denne måneden.',
+    from: 'Dagvakta',
+    color: 'mint',
+    fagligBegrunnelse:
+      'Hoste, våt stemme og gjentatt feber er klassiske tegn på svelgvansker med aspirasjon. Tiltaket er tilpasset konsistens og spisestilling og en svelgvurdering – samtidig som ernæringen følges, fordi konsistenstilpasset kost øker risikoen for underernæring.',
+    kilde: 'Nasjonal faglig retningslinje for forebygging og behandling av underernæring · IDDSI',
+    options: [
+      {
+        id: 'tilpass',
+        label: 'Tilpass konsistens og sittestilling, be om svelgvurdering',
+        hint: 'Krever noen med Ernæring 3+',
+        requires: { skill: { id: 'ernaering', min: 3 } },
+        effect: { fagpoeng: 35, trivsel: 4 },
+        outcome: 'Fortykket drikke, oppreist stilling og små slurker. Logopeden kom uka etter, og feberen har ikke kommet tilbake.',
+      },
+      {
+        id: 'bare_mos',
+        label: 'Gi bare moset mat fra nå',
+        hint: 'Enkelt og trygt?',
+        effect: { trivsel: -3, fagpoeng: 5 },
+        outcome: 'Hostingen avtok, men Astrid mistet matlysten. Tre uker senere var hun gått ned to kilo.',
+      },
+      {
+        id: 'drikk_mer',
+        label: 'Minn henne på å drikke mer',
+        hint: 'Hun trenger jo væske',
+        effect: { avvik: 1, trivsel: -4, budget: -400 },
+        outcome: 'Lungebetennelse etter aspirasjon og ti dager på sykehus. Tegnene var der.',
+      },
+    ],
+  },
+  {
+    id: 'palliasjon_uro',
+    title: 'Urolig mot slutten',
+    body: 'Olaug (rom 8) er døende. Hun er urolig, surkler og grimaserer. Sønnen spør om hun har vondt, og om hun burde på sykehus.',
+    from: 'Nattevakta',
+    color: 'bla',
+    fagligBegrunnelse:
+      'Når døden er nær, er målet lindring der pasienten er. Smerte, uro, kvalme og surkling skal kartlegges og behandles fortløpende, med behovsmedisin forordnet på forhånd. Forhåndssamtaler avklarer hva pasienten ønsker før det haster.',
+    kilde: 'Nasjonale faglige råd for lindrende behandling i livets sluttfase',
+    options: [
+      {
+        id: 'lindre',
+        label: 'Lindre etter plan og bli hos familien',
+        hint: 'Krever sykepleier på vakt',
+        requires: { profession: 'sykepleier' },
+        effect: { fagpoeng: 45, trivsel: 6, energy: -6, scope: 'paaVakt', passXp: 10 },
+        outcome: 'Smerte og uro ble kartlagt, behovsmedisin gitt og effekten fulgt. Olaug døde rolig i grålysningen med sønnen ved senga.',
+      },
+      {
+        id: 'sykehus',
+        label: 'Send henne til sykehus',
+        hint: 'Der har de mer utstyr',
+        effect: { budget: -600, trivsel: -5, stress: 4, scope: 'paaVakt' },
+        outcome: 'Olaug døde på en båre i akuttmottaket. Det var ikke det hun og familien hadde ønsket i forhåndssamtalen.',
+      },
+      {
+        id: 'vent',
+        label: 'Vent på legevisitten i morgen',
+        hint: 'Det er jo midt på natta',
+        effect: { avvik: 1, trivsel: -6, stress: 6, scope: 'paaVakt' },
+        outcome: 'Det ble en lang og vond natt for Olaug, for sønnen og for nattevakta.',
+      },
+    ],
+  },
+  {
+    id: 'taushetsplikt_nabo',
+    title: 'Naboen ringer',
+    body: '«Jeg er bare en gammel nabo av Reidar. Hvordan går det egentlig med ham? Er det kreft?» Hun har ringt tre ganger.',
+    from: 'Dagvakta',
+    color: 'gul',
+    fagligBegrunnelse:
+      'Helsepersonell har taushetsplikt om helse og personlige forhold – også overfor venner og naboer. Opplysninger kan gis når pasienten samtykker, så det enkleste er som regel å spørre pasienten selv.',
+    kilde: 'Helsepersonelloven §§ 21 og 22',
+    options: [
+      {
+        id: 'spor_reidar',
+        label: 'Spør Reidar om hva hun kan få vite',
+        hint: 'Det er hans opplysninger',
+        effect: { trivsel: 3, fagpoeng: 20 },
+        outcome: 'Reidar ville gjerne ha besøk, men ikke at diagnosen ble nevnt. Naboen kom på torsdag med wienerbrød.',
+      },
+      {
+        id: 'fortell_litt',
+        label: 'Si litt – hun mener det jo godt',
+        hint: 'Bare det viktigste',
+        effect: { avvik: 1, trivsel: -3 },
+        outcome: 'Innen helga visste hele borettslaget det. Reidars datter ringte, og hun var ikke blid.',
+      },
+      {
+        id: 'avvis',
+        label: 'Avvis henne: «Vi kan ikke si noe»',
+        hint: 'Korrekt, men kaldt',
+        effect: { fagpoeng: 8, trivsel: -1 },
+        outcome: 'Taushetsplikten ble overholdt. Reidar fikk aldri vite at noen spurte etter ham.',
+      },
+    ],
+  },
+  {
+    id: 'gps_vandring',
+    title: 'GPS til Trygve?',
+    body: 'Trygve (rom 4) gikk ut i tøflene i natt og ble funnet ved busstoppet. Sønnen vil ha GPS på ham. Trygve skjønner ikke spørsmålet.',
+    from: 'Primærkontakten',
+    color: 'bla',
+    minTier: 1,
+    fagligBegrunnelse:
+      'Varslings- og lokaliseringsteknologi kan brukes for pasienter uten samtykkekompetanse når det er nødvendig for å hindre skade og er i pasientens interesse. Det krever en dokumentert vurdering og vedtak – pårørendes ønske er ikke nok.',
+    kilde: 'Pasient- og brukerrettighetsloven § 4-6 a',
+    options: [
+      {
+        id: 'vedtak_gps',
+        label: 'Vurder samtykkekompetansen og fatt vedtak',
+        hint: 'Krever noen med Dok. 3+',
+        requires: { skill: { id: 'dokumentasjon', min: 3 } },
+        effect: { fagpoeng: 40, trivsel: 4, budget: -500, passXp: 10 },
+        outcome: 'Vurderingen ble journalført, vedtaket fattet og pårørende informert. Trygve går tur igjen – og dere vet hvor han er.',
+      },
+      {
+        id: 'bare_gps',
+        label: 'Bare sett på GPS-en',
+        hint: 'Sønnen har jo sagt ja',
+        effect: { avvik: 1, trivsel: 2, budget: -500 },
+        outcome: 'Det virket, helt til tilsynet spurte etter vedtaket. Pårørende kan ikke samtykke til dette på hans vegne.',
+      },
+      {
+        id: 'las_dora',
+        label: 'Lås avdelingsdøra om natta',
+        hint: 'Da kommer han ingen vei',
+        effect: { avvik: 2, trivsel: -5 },
+        outcome: 'Trygve sto og rev i døra i to timer. Innlåsing er tvang og krever et helt annet vedtak.',
+      },
+    ],
+  },
+  {
+    id: 'uvi_stix',
+    title: 'Urinen lukter',
+    body: 'Bjørg (rom 5) har sterk lukt av urinen. Ingen feber, ingen svie, hun er som vanlig. Vikaren har stixet: utslag på alt. «Hun må ha antibiotika!»',
+    from: 'Aftenvakta',
+    color: 'mint',
+    fagligBegrunnelse:
+      'Bakterier i urinen uten symptomer er vanlig hos eldre og skal ikke behandles. Lukt og utslag på stix alene er ikke grunn til antibiotika; unødvendige kurer gir bivirkninger og resistens.',
+    kilde: 'Nasjonal faglig retningslinje for antibiotika i primærhelsetjenesten',
+    options: [
+      {
+        id: 'observer',
+        label: 'Observer symptomer og gi rikelig drikke',
+        hint: 'Krever noen med Medisin 3+',
+        requires: { skill: { id: 'medikament', min: 3 } },
+        effect: { fagpoeng: 30, trivsel: 2 },
+        outcome: 'Ingen symptomer, ingen behandling. Mer drikke ga lysere urin, og Bjørg slapp en kur hun ikke trengte.',
+      },
+      {
+        id: 'krev_kur',
+        label: 'Ring legen og be om antibiotika',
+        hint: 'For sikkerhets skyld',
+        effect: { trivsel: -3, budget: -300, avvik: 1 },
+        outcome: 'Bjørg fikk kur, diaré og soppinfeksjon. Urinen lukter fortsatt.',
+      },
+      {
+        id: 'dyrkning',
+        label: 'Send urinprøve til dyrkning',
+        hint: 'Så vet vi i hvert fall',
+        effect: { budget: -200, fagpoeng: 5 },
+        outcome: 'Prøven viste bakterier – som hos mange på Bjørgs alder. Legen ville ikke behandle uten symptomer.',
+      },
+    ],
+  },
+  {
+    id: 'hviletid',
+    title: 'Sen–tidlig',
+    body: 'Kan aftenvakta gå tidligvakt i morgen? Hun går av 22:30 i kveld. Det er bare henne som ikke har sagt nei ennå.',
+    from: 'Deg selv',
+    color: 'gul',
+    fagligBegrunnelse:
+      'Arbeidstaker skal ha minst 11 timers sammenhengende hvile i døgnet. Kortere hvile, ned til 8 timer, krever avtale med tillitsvalgte og kompenserende hvile. Trøtte folk gjør flere feil.',
+    kilde: 'Arbeidsmiljøloven § 10-8',
+    options: [
+      {
+        id: 'respekter',
+        label: 'Nei – finn en annen løsning',
+        hint: 'Koster en vikartime eller to',
+        effect: { budget: -500, stress: -3, scope: 'alle', fagpoeng: 10 },
+        outcome: 'Vikaren kostet litt, men ingen gikk på jobb med seks timers søvn.',
+      },
+      {
+        id: 'avtale',
+        label: 'Avklar med tillitsvalgt og kompensér',
+        hint: 'Kortere hvile kan avtales',
+        effect: { stress: 3, scope: 'paaVakt', fagpoeng: 15, budget: -200 },
+        outcome: 'Avtalen ga åtte timers hvile og kompenserende fri dagen etter. Ryddig – men bør ikke bli en vane.',
+      },
+      {
+        id: 'press',
+        label: '«Du stiller vel opp for kollegene?»',
+        hint: 'Gratis og effektivt',
+        effect: { stress: 9, scope: 'alle', energy: -15, avvik: 1 },
+        outcome: 'Hun kom. Litt over åtte ga hun morgenmedisinen til feil rom.',
+      },
+    ],
+  },
+  {
+    id: 'journal_etterslep',
+    title: 'Journalen henger etter',
+    body: 'Gudrun (rom 1) falt på lørdag. I dag er det tirsdag, og det står ingenting i journalen. «Vi sa det jo i rapporten», sier helgevakta.',
+    from: 'Fagutviklingssykepleier',
+    color: 'bla',
+    fagligBegrunnelse:
+      'Den som yter helsehjelp, skal føre relevante og nødvendige opplysninger i journalen uten ugrunnet opphold. Sene notater føres med riktig tidspunkt for nedtegnelsen – journalen skal aldri tilbakedateres.',
+    kilde: 'Helsepersonelloven §§ 39 og 40 · Pasientjournalforskriften',
+    options: [
+      {
+        id: 'for_naa',
+        label: 'Få det journalført nå, og skjerm tid til dokumentasjon',
+        hint: 'Krever noen med Dok. 2+',
+        requires: { skill: { id: 'dokumentasjon', min: 2 } },
+        effect: { fagpoeng: 30, avvik: 1, energy: -4, scope: 'paaVakt' },
+        outcome: 'Fallet ble etterregistrert som det var – med dato for når notatet ble skrevet. Ti minutter før vaktslutt er nå skjermet tid.',
+      },
+      {
+        id: 'muntlig',
+        label: 'Muntlig rapport får holde',
+        hint: 'Alle vet det jo',
+        effect: { avvik: 1, trivsel: -2 },
+        outcome: 'Fysioterapeuten visste det ikke. Gudrun ble tatt med på gangtrening med et brukket håndledd ingen hadde oppdaget.',
+      },
+      {
+        id: 'skriv_tilbake',
+        label: 'Skriv notatet og sett lørdagens dato',
+        hint: 'Så ser det ryddig ut',
+        effect: { avvik: 2, stress: 3, scope: 'alle' },
+        outcome: 'Tidsstempelet avslørte det med en gang. Tilbakedatering er verre enn et sent notat.',
       },
     ],
   },

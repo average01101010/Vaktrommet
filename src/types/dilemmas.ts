@@ -44,6 +44,10 @@ export interface DilemmaDef {
   from: string
   color: PostItColor
   minTier?: number
+  /** Faglig begrunnelse som vises sammen med utfallet. */
+  fagligBegrunnelse: string
+  /** Kort kildehenvisning (lov, retningslinje eller verktøy). */
+  kilde: string
   options: DilemmaOption[]
 }
 

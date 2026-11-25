@@ -3,10 +3,8 @@ import type { GameState, QualityStats } from '@/types'
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
-/**
- * Driftsligaen: total poengsum. Belønner volum og progresjon over tid.
- */
-export function driftScore(state: GameState): number {
+/** Driftspoeng for avdelingen du leder nå. */
+export function wardDriftScore(state: GameState): number {
   let upgradeLevels = 0
   for (const level of Object.values(state.upgrades)) upgradeLevels += level
   return Math.floor(
@@ -18,6 +16,12 @@ export function driftScore(state: GameState): number {
   )
 }
 
+/**
+ * Driftsligaen: total poengsum over hele karrieren – nåværende avdeling pluss
+ * alt som er banket fra avdelinger du har overlevert.
+ */
+export const driftScore = (state: GameState): number => state.prestige.bankedDrift + wardDriftScore(state)
+
 export interface QualityBreakdown {
   /** 0–1000. */
   index: number
@@ -26,9 +30,9 @@ export interface QualityBreakdown {
 }
 
 /**
- * Kvalitetsindeksen: ren effektivitet – høy trivsel, få avvik, lavt fravær,
- * lav belastning og god dekning per lønnskrone. Bygger kun på forholdstall,
- * så verken kjøpt tid, flere senger eller dyre staber gir fordel.
+ * Kvalitetsindeksen: ren effektivitet. Bygger kun på forholdstall, og 30 %
+ * handler om hvor godt du bruker ressursene (dekning per lønnskrone og
+ * kompetanseutnyttelse) – så en dyr, overkvalifisert stab ikke vinner på volum.
  */
 export function qualityIndex(state: GameState): QualityBreakdown {
   const q = state.quality
@@ -36,14 +40,14 @@ export function qualityIndex(state: GameState): QualityBreakdown {
     {
       id: 'trivsel',
       label: 'Pasienttrivsel',
-      weight: 0.35,
+      weight: 0.25,
       score: clamp01(q.trivsel / 100),
       display: `${Math.round(q.trivsel)} %`,
     },
     {
       id: 'avvikPerBedDay',
-      label: 'Avvik per seng/døgn',
-      weight: 0.25,
+      label: 'Avvik per beboer/døgn',
+      weight: 0.2,
       score: clamp01(1 / (1 + q.avvikPerBedDay * 6)),
       display: q.avvikPerBedDay.toFixed(2).replace('.', ','),
     },
@@ -67,6 +71,13 @@ export function qualityIndex(state: GameState): QualityBreakdown {
       weight: 0.15,
       score: clamp01(q.efficiency / 1.2),
       display: `${Math.round(q.efficiency * 100)}`,
+    },
+    {
+      id: 'competence',
+      label: 'Kompetanseutnyttelse',
+      weight: 0.15,
+      score: clamp01(q.competence),
+      display: `${Math.round(q.competence * 100)} %`,
     },
   ]
   let sum = 0

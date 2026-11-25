@@ -1,8 +1,8 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { SHIFT_ORDER } from '@/data/balance'
-import { computeModifiers, slotsFor } from '@/engine/modifiers'
+import { modifiersFor, slotsFor } from '@/engine/modifiers'
 import { evaluateShift } from '@/engine/synergy'
-import { shiftAt } from '@/engine/time'
+import { liveMinute, shiftAt } from '@/engine/time'
 import type { GameState, Modifiers, ShiftEvaluation, ShiftId, StaffId } from '@/types'
 import { useGame } from './gameStore'
 
@@ -10,7 +10,24 @@ export const useGameState = (): GameState => useGame((s) => s.game)
 
 export function useModifiers(): Modifiers {
   const upgrades = useGame((s) => s.game.upgrades)
-  return useMemo(() => computeModifiers(upgrades), [upgrades])
+  const wardType = useGame((s) => s.game.wardType)
+  const prestige = useGame((s) => s.game.prestige)
+  return useMemo(() => modifiersFor({ upgrades, wardType, prestige }), [upgrades, wardType, prestige])
+}
+
+/**
+ * Jevnt løpende spillminutt for visning. Motoren går i steg på 15 spillminutter;
+ * denne interpolerer mellom dem slik at klokka og framdriftslinjer flyter.
+ */
+export function useLiveMinute(intervalMs = 500): number {
+  const minute = useGame((s) => s.game.minute)
+  const lastTickAt = useGame((s) => s.game.lastTickAt)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), intervalMs)
+    return () => clearInterval(t)
+  }, [intervalMs])
+  return liveMinute({ minute, lastTickAt }, Math.max(now, lastTickAt))
 }
 
 export function useShiftEvaluation(shift: ShiftId): ShiftEvaluation {

@@ -1,5 +1,6 @@
 export type * from './staff'
 export type * from './roster'
+export type * from './residents'
 export type * from './upgrades'
 export type * from './dilemmas'
 export type * from './economy'

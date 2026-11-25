@@ -8,7 +8,8 @@ import { UpgradesTab } from '@/components/upgrades/UpgradesTab'
 import { WardTab } from '@/components/ward/WardTab'
 import { INSPECTION_TIERS } from '@/data/balance'
 import { UPGRADES } from '@/data/upgrades'
-import { upgradeStatus } from '@/engine/actions'
+import { inspectionQualified, upgradeStatus } from '@/engine/actions'
+import { inspectionAverage } from '@/engine/simulation'
 import { useGame } from '@/store/gameStore'
 import { useGameLoop } from '@/store/useGameLoop'
 
@@ -23,9 +24,10 @@ export default function App() {
     const st = upgradeStatus(game, u)
     return !st.locked && !st.maxed && st.affordable
   }).length
-  const inspection = INSPECTION_TIERS.filter(
-    (t, i) => game.inspection.points >= t.points && !game.inspection.claimed.includes(i),
-  ).length
+  const average = inspectionAverage(game)
+  const inspection = inspectionQualified(game)
+    ? INSPECTION_TIERS.filter((t, i) => average >= t.score && !game.inspection.claimed.includes(i)).length
+    : 0
 
   return (
     <div className="min-h-dvh overflow-x-clip">

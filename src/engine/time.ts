@@ -31,6 +31,18 @@ export const gameMinutesToRealMs = (gameMinutes: number): number =>
 
 export const realMsToGameMinutes = (ms: number): number => (ms / 1000) * BALANCE.gameMinutesPerRealSecond
 
+/** Reelle millisekunder per simuleringssteg. */
+export const STEP_MS = gameMinutesToRealMs(BALANCE.stepMin)
+
+/**
+ * Jevnt løpende spillminutt for visning: motorens minutt pluss tiden som er
+ * gått inn i neste steg. Påvirker aldri simuleringen.
+ */
+export function liveMinute(state: { minute: number; lastTickAt: number }, nowMs: number): number {
+  const into = realMsToGameMinutes(Math.max(0, nowMs - state.lastTickAt))
+  return state.minute + Math.min(BALANCE.stepMin, into)
+}
+
 /** ISO-uke, f.eks. «2026-W48» (UTC). */
 export function isoWeekKey(ms: number): string {
   const d = new Date(ms)

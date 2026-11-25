@@ -1,4 +1,4 @@
-import { BALANCE, RARITY, SHIFT_DEMAND, WAGE_PER_HOUR } from '@/data/balance'
+import { BALANCE, RARITY, WAGE_PER_HOUR } from '@/data/balance'
 import { PROFESSION_ORDER, SKILL_ORDER } from '@/data/professions'
 import { SYNERGIES, type SynergyContext } from '@/data/synergies'
 import type {
@@ -13,6 +13,7 @@ import type {
   StaffMember,
 } from '@/types'
 import { bedsFor, slotsFor } from './modifiers'
+import { computeDemand } from './residents'
 
 const zeroSkills = (): Record<SkillId, number> =>
   Object.fromEntries(SKILL_ORDER.map((s) => [s, 0])) as Record<SkillId, number>
@@ -42,13 +43,23 @@ export function shiftCountOf(state: GameState, id: StaffId, slots: number): numb
 }
 
 /**
- * Kjernen i synergimotoren: gitt bemanningen på én vakt, regn ut dekning,
- * aktive synergier/problemer og alle rater per spilltime.
+ * Kjernen i synergimotoren: gitt bemanningen på én vakt og beboernes behov,
+ * regn ut dekning per egenskap, aktive synergier/problemer og alle rater.
+ *
+ * Dekningen har ingen krysskompensasjon: hver egenskap kappes på 100 %, så
+ * overskudd i Stell aldri veier opp for manglende Medisin eller Sår.
  */
-export function evaluateShift(state: GameState, shift: ShiftId, mods: Modifiers): ShiftEvaluation {
+export function evaluateShift(
+  state: GameState,
+  shift: ShiftId,
+  mods: Modifiers,
+  /** Ferdig beregnet behov (hurtigbuffer i simuleringsløkka). */
+  demandOverride?: Record<SkillId, number>,
+): ShiftEvaluation {
   const slots = slotsFor(mods)
   const beds = bedsFor(mods)
-  const bedScale = beds / BALANCE.baseBeds
+  const residents = state.residents.length
+  const scale = residents / BALANCE.baseBeds
 
   const present: StaffMember[] = []
   const presentIds: StaffId[] = []
@@ -65,8 +76,7 @@ export function evaluateShift(state: GameState, shift: ShiftId, mods: Modifiers)
     }
   }
 
-  // ---- Behov og kapasitet per egenskap ----
-  const demand = zeroSkills()
+  // ---- Kapasitet per egenskap ----
   const supply = zeroSkills()
   const skillSum = zeroSkills()
   const skillMax = zeroSkills()
@@ -90,27 +100,53 @@ export function evaluateShift(state: GameState, shift: ShiftId, mods: Modifiers)
     }
   }
 
+  // Uten sykepleier kan bare delegerte legemiddel- og såroppgaver utføres.
+  const nurseOnDuty = professions.sykepleier > 0
+  const nurseFactor = nurseOnDuty
+    ? { medikament: 1, saarstell: 1 }
+    : {
+        medikament: professions.vernepleier > 0 ? BALANCE.noNurseMedFactorVernepleier : BALANCE.noNurseMedFactor,
+        saarstell: BALANCE.noNurseSaarFactor,
+      }
+  supply.medikament *= nurseFactor.medikament
+  supply.saarstell *= nurseFactor.saarstell
+
+  // ---- Behov fra beboerne og dekning uten krysskompensasjon ----
+  const demand = demandOverride ?? computeDemand(state, shift, mods)
   let demandTotal = 0
   let covered = 0
+  let supplyTotal = 0
+  let minRatio = Infinity
   for (const skill of SKILL_ORDER) {
-    const need = SHIFT_DEMAND[shift][skill] * bedScale * mods.demandMult[shift]
-    demand[skill] = need
+    const need = demand[skill]
+    supplyTotal += supply[skill]
     if (need <= 0) {
       coverageBySkill[skill] = present.length > 0 ? 1 : 0
       continue
     }
-    const c = Math.min(BALANCE.maxCoverage, supply[skill] / need)
+    const ratio = supply[skill] / need
+    const c = Math.min(1, ratio)
     coverageBySkill[skill] = c
     demandTotal += need
     covered += need * c
+    if (ratio < minRatio) minRatio = ratio
   }
-  const coverage = demandTotal > 0 ? covered / demandTotal : 0
-  const workload =
-    present.length === 0
-      ? 1
-      : coverage < 1
-        ? 1 + (1 - coverage) * BALANCE.workloadFromGap
-        : 1 - (coverage - 1) * BALANCE.workloadFromSurplus
+  const coverage = demandTotal > 0 ? covered / demandTotal : present.length > 0 ? 1 : 0
+  const utilization = supplyTotal > 0 ? covered / supplyTotal : 0
+
+  // Belastningen letter bare når den SVAKESTE egenskapen også er overdekket.
+  let workload = 1
+  if (present.length > 0) {
+    if (coverage < 1) workload = 1 + (1 - coverage) * BALANCE.workloadFromGap
+    else if (Number.isFinite(minRatio)) {
+      workload = 1 - (Math.min(BALANCE.surplusCap, minRatio) - 1) * BALANCE.workloadFromSurplus
+    }
+  }
+
+  const criticalGap = {
+    medikament: demand.medikament > 0 ? 1 - coverageBySkill.medikament : 0,
+    saarstell: demand.saarstell > 0 ? 1 - coverageBySkill.saarstell : 0,
+  }
 
   // ---- Synergier og problemer ----
   const ctx: SynergyContext = {
@@ -149,7 +185,7 @@ export function evaluateShift(state: GameState, shift: ShiftId, mods: Modifiers)
   const tier = state.tier
   const fagpoeng =
     BALANCE.fagpoengPerHour *
-    bedScale *
+    scale *
     coverage *
     Math.max(0.2, 1 + fagBonus) *
     mods.fagpoengMult *
@@ -157,16 +193,24 @@ export function evaluateShift(state: GameState, shift: ShiftId, mods: Modifiers)
 
   const trivselShare = BALANCE.grantFloorShare + (1 - BALANCE.grantFloorShare) * (state.ward.trivsel / 100)
   const staffedFactor = Math.min(1, coverage / BALANCE.grantFullCoverage)
-  const grant = beds * BALANCE.grantPerBed * trivselShare * staffedFactor
-  const qualityGrant = beds * BALANCE.qualityGrantPerBed * coverage * Math.max(0.2, 1 + budgetBonus)
+  const grant = residents * BALANCE.grantPerBed * trivselShare * staffedFactor
+  const qualityGrant = residents * BALANCE.qualityGrantPerBed * coverage * Math.max(0.2, 1 + budgetBonus)
   const budgetGross = (grant + qualityGrant) * mods.budgetMult * (1 + tier * BALANCE.tierBudgetBonus)
-  const minNet = beds * BALANCE.grantPerBed * BALANCE.minNetShare
+  const minNet = residents * BALANCE.grantPerBed * BALANCE.minNetShare
   const budgetNet = Math.max(minNet, budgetGross - wages)
 
+  // Avvik: generell underdekning + direkte utslag av udekket Medisin og Sår.
   const gap = Math.max(0, 1 - coverage)
   const stressedTeam = ctx.avgStress > 70 ? 1.4 : 1
+  const criticalAvvik =
+    BALANCE.avvikCritical *
+    (demand.medikament * criticalGap.medikament * criticalGap.medikament +
+      demand.saarstell * criticalGap.saarstell * criticalGap.saarstell)
   const avvik =
-    bedScale * (BALANCE.avvikBase + BALANCE.avvikFromGap * gap * gap) * avvikMult * mods.avvikMult * stressedTeam
+    (scale * (BALANCE.avvikBase + BALANCE.avvikFromGap * gap * gap) + criticalAvvik) *
+    avvikMult *
+    mods.avvikMult *
+    stressedTeam
 
   let stress = (workload - 1) * BALANCE.stressFromWorkload - BALANCE.stressBaseRelief + stressDelta
   if (stress > 0) stress *= mods.stressMult
@@ -178,7 +222,12 @@ export function evaluateShift(state: GameState, shift: ShiftId, mods: Modifiers)
     0,
     Math.min(
       100,
-      BALANCE.trivselBase + BALANCE.trivselFromCoverage * Math.min(1, coverage) + trivselBonus + mods.trivselBonus,
+      BALANCE.trivselBase +
+        BALANCE.trivselFromCoverage * coverage -
+        BALANCE.trivselCriticalMed * criticalGap.medikament -
+        BALANCE.trivselCriticalSaar * criticalGap.saarstell +
+        trivselBonus +
+        mods.trivselBonus,
     ),
   )
 
@@ -188,11 +237,16 @@ export function evaluateShift(state: GameState, shift: ShiftId, mods: Modifiers)
     absent: absentIds,
     slots,
     beds,
+    residents,
     demand,
     supply,
     coverageBySkill,
     coverage,
     workload,
+    nurseOnDuty,
+    nurseFactor,
+    criticalGap,
+    utilization,
     professions,
     synergies,
     rates: {

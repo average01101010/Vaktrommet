@@ -1,9 +1,10 @@
 import { useEffect } from 'react'
-import { useGame } from './gameStore'
+import { flushSave, useGame } from './gameStore'
 
 /**
- * Driver simuleringen: ett tick i sekundet mens fanen er synlig, og en
- * innhenting (offline-beregning) når spilleren kommer tilbake.
+ * Driver simuleringen. Ticket går hvert sekund, men motoren flytter seg bare i
+ * hele, faste steg – så hvor ofte vi spør, påvirker aldri resultatet.
+ * Når fanen skjules eller lukkes, skrives lagringen med en gang.
  */
 export function useGameLoop(): void {
   useEffect(() => {
@@ -15,15 +16,21 @@ export function useGameLoop(): void {
       if (document.visibilityState === 'visible') {
         tick()
         timer ??= setInterval(tick, 1000)
-      } else if (timer) {
-        clearInterval(timer)
-        timer = null
+      } else {
+        flushSave()
+        if (timer) {
+          clearInterval(timer)
+          timer = null
+        }
       }
     }
     document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pagehide', flushSave)
     return () => {
       if (timer) clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', flushSave)
+      flushSave()
     }
   }, [])
 }

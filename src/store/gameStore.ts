@@ -1,8 +1,9 @@
 import { create } from 'zustand'
-import { createJSONStorage, persist } from 'zustand/middleware'
+import { persist, type PersistStorage } from 'zustand/middleware'
 import { SHOP_BY_ID } from '@/data/economy'
 import * as actions from '@/engine/actions'
 import type { ActionResult } from '@/engine/actions'
+import { migrateGameState } from '@/engine/migrate'
 import { catchUp, createInitialState, STATE_VERSION } from '@/engine/simulation'
 import { getAdProvider, getPurchaseProvider } from '@/services/monetization'
 import type {
@@ -16,6 +17,7 @@ import type {
   SkillId,
   StaffId,
   UpgradeId,
+  WardTypeId,
 } from '@/types'
 
 export type ToastTone = 'info' | 'good' | 'bad'
@@ -65,6 +67,7 @@ interface GameStore {
   claimInspection: (index: number) => void
   doubleLastShift: () => Promise<void>
   markShiftReportSeen: () => void
+  rotateWard: (choice: { wardType: WardTypeId; keepStaff: StaffId[]; wardName?: string }) => boolean
 
   watchAd: (placement: AdPlacement) => Promise<boolean>
   finishAd: (watched: boolean) => void
@@ -97,6 +100,62 @@ const safeStorage = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// Debouncet lagring
+// ---------------------------------------------------------------------------
+
+type Persisted = { game: GameState }
+
+/** Minste tid mellom to skrivinger til localStorage. */
+const SAVE_INTERVAL_MS = 5000
+
+let pendingSave: { name: string; value: { state: Persisted; version?: number } } | null = null
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+let lastSavedAt = 0
+
+/**
+ * Skriver ventende lagring nå. Kalles etter viktige spillerhandlinger og når
+ * fanen skjules eller lukkes, så ingenting går tapt mellom de faste skrivingene.
+ */
+export function flushSave(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  if (!pendingSave) return
+  const { name, value } = pendingSave
+  pendingSave = null
+  lastSavedAt = Date.now()
+  safeStorage.setItem(name, JSON.stringify(value))
+}
+
+/**
+ * Lagringsadapter som holder på siste tilstand og skriver høyst hvert femte
+ * sekund. Serialiseringen (JSON.stringify av hele spillet) skjer bare når det
+ * faktisk skrives – ikke ved hver tilstandsendring.
+ */
+const debouncedStorage: PersistStorage<Persisted> = {
+  getItem: (name) => {
+    const raw = safeStorage.getItem(name)
+    if (!raw) return null
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  },
+  setItem: (name, value) => {
+    pendingSave = { name, value }
+    if (saveTimer) return
+    const wait = Math.max(0, SAVE_INTERVAL_MS - (Date.now() - lastSavedAt))
+    saveTimer = setTimeout(flushSave, wait)
+  },
+  removeItem: (name) => {
+    pendingSave = null
+    safeStorage.removeItem(name)
+  },
+}
+
 export const useGame = create<GameStore>()(
   persist(
     (set, get) => {
@@ -107,6 +166,8 @@ export const useGame = create<GameStore>()(
           return null
         }
         set({ game: result.state })
+        // Spillerhandlinger lagres med en gang – ikke bare ved neste faste skriving.
+        flushSave()
         return result
       }
 
@@ -117,8 +178,12 @@ export const useGame = create<GameStore>()(
         ad: null,
 
         tick: (nowMs) => {
-          const { state, report } = catchUp(get().game, nowMs)
+          const game = get().game
+          const { state, report } = catchUp(game, nowMs)
+          // Mellom hele simuleringssteg er tilstanden uendret – da rører vi ingenting.
+          if (state === game) return
           set(report ? { game: state, offlineReport: report } : { game: state })
+          if (report) flushSave()
         },
         dismissOfflineReport: () => set({ offlineReport: null }),
 
@@ -129,7 +194,10 @@ export const useGame = create<GameStore>()(
         },
         dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
-        resetGame: () => set({ game: createInitialState(Date.now()), offlineReport: null }),
+        resetGame: () => {
+          set({ game: createInitialState(Date.now()), offlineReport: null })
+          flushSave()
+        },
 
         setProfile: (profile) => void run(actions.setProfile(get().game, profile)),
 
@@ -193,6 +261,12 @@ export const useGame = create<GameStore>()(
         },
         markShiftReportSeen: () => void run(actions.markShiftReportSeen(get().game)),
 
+        rotateWard: (choice) => {
+          const ok = run(actions.rotateWard(get().game, choice)) !== null
+          if (ok) get().toast('Avdelingen er overlevert. Lykke til med det nye oppdraget!', 'good')
+          return ok
+        },
+
         watchAd: (placement) => {
           const provider = getAdProvider()
           if (provider) return provider.show(placement)
@@ -209,11 +283,16 @@ export const useGame = create<GameStore>()(
     {
       name: 'vaktrommet-save',
       version: STATE_VERSION,
-      storage: createJSONStorage(() => safeStorage),
+      storage: debouncedStorage,
       partialize: (s) => ({ game: s.game }),
-      // Ukjent/eldre lagringsformat: start på nytt framfor å krasje.
-      migrate: (persisted, version) =>
-        version === STATE_VERSION ? (persisted as { game: GameState }) : { game: createInitialState(Date.now()) },
+      // Eldre lagringsformat løftes av merge() under – her sendes det bare videre.
+      migrate: (persisted) => persisted as Persisted,
+      // Hver innlasting går gjennom migrateGameState: nye felter får trygge
+      // standardverdier, og spilleren beholder alt som er opparbeidet.
+      merge: (persisted, current) => ({
+        ...current,
+        game: migrateGameState((persisted as Partial<Persisted> | undefined)?.game, Date.now()),
+      }),
     },
   ),
 )

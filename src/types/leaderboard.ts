@@ -43,6 +43,8 @@ export interface QualityStats {
   stress: number
   /** Pasientdekning per lønnskrone (normalisert) – nøytraliserer dyre staber. */
   efficiency: number
+  /** Kompetanseutnyttelse (0–1): hvor mye av lagets kapasitet som treffer behov. */
+  competence: number
   /** Antall spilltimer med målinger. */
   hours: number
 }
@@ -59,6 +61,9 @@ export interface InspectionDef {
 export interface InspectionState {
   /** ISO-uke, f.eks. «2026-W48». */
   weekKey: string
-  points: number
+  /** Sum av tilsynspoeng (0–100) for vaktene som er fullført denne uka. */
+  scoreSum: number
+  /** Antall fullførte vakter denne uka. Resultatet er scoreSum / shifts. */
+  shifts: number
   claimed: number[]
 }

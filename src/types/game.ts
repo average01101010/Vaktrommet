@@ -1,6 +1,7 @@
 import type { DilemmaState } from './dilemmas'
 import type { MonetizationState, Resources } from './economy'
 import type { InspectionState, PlayerProfile, QualityStats } from './leaderboard'
+import type { PrestigeState, Resident, WardTypeId } from './residents'
 import type { Roster, ShiftAccumulator, ShiftId, ShiftReport } from './roster'
 import type { StaffId, StaffMember } from './staff'
 import type { UpgradeLevels } from './upgrades'
@@ -12,6 +13,8 @@ export interface WardState {
   avvik: number
   /** Brøkdel av neste avvik (akkumulator). */
   avvikProgress: number
+  /** Løpenummer for innkomster (gir beboer-id). */
+  residentCounter: number
 }
 
 export interface LifetimeStats {
@@ -27,7 +30,7 @@ export interface GameEvent {
   id: number
   /** Spillminutt. */
   at: number
-  kind: 'syk' | 'frisk' | 'kurs' | 'nivaa' | 'avdeling' | 'avvik'
+  kind: 'syk' | 'frisk' | 'kurs' | 'nivaa' | 'avdeling' | 'beboer'
   text: string
 }
 
@@ -38,11 +41,12 @@ export interface GameEvent {
 export interface GameState {
   version: number
   createdAt: number
-  /** Epoch ms for siste simulerte øyeblikk. */
+  /**
+   * Epoch ms for siste simulerte steg. Flyttes bare i hele steg, så resten
+   * (nå − lastTickAt) alltid er tiden inn i neste steg.
+   */
   lastTickAt: number
-  /** Ubrukt rest av sanntid (ms) som ikke fylte et helt simuleringssteg. */
-  carryMs: number
-  /** Spillminutter siden start. Dag 1 begynner kl. 07:00. */
+  /** Spillminutter siden start (multiplum av steglengden). Dag 1 begynner kl. 07:00. */
   minute: number
   /** Seedet RNG-tilstand (mulberry32) – gir deterministisk simulering. */
   rng: number
@@ -50,6 +54,12 @@ export interface GameState {
   resources: Resources
   lifetime: LifetimeStats
   ward: WardState
+  /** Avdelingstypen du leder nå – styrer beboerprofiler og modifikatorer. */
+  wardType: WardTypeId
+  /** Aktive beboere. Behovet på hver vakt summeres fra disse. */
+  residents: Resident[]
+  /** Renommé og fagbøker som følger deg mellom avdelinger. */
+  prestige: PrestigeState
   staff: Record<StaffId, StaffMember>
   staffOrder: StaffId[]
   roster: Roster
@@ -82,6 +92,8 @@ export interface OfflineReport {
   avvik: number
   shifts: number
   sick: number
+  /** Antall beboere som ble skrevet ut (og erstattet) i perioden. */
+  discharged: number
   trivselFrom: number
   trivselTo: number
   newDilemmas: number

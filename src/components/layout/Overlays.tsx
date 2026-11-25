@@ -21,6 +21,7 @@ export function OfflineReportSheet() {
     { label: 'Fullførte vakter', value: fmtInt(report.shifts) },
     { label: 'Avvik', value: fmtInt(report.avvik), tone: report.avvik > 0 ? 'text-fare' : undefined },
     { label: 'Sykmeldinger', value: fmtInt(report.sick), tone: report.sick > 0 ? 'text-fare' : undefined },
+    { label: 'Utskrevne beboere', value: fmtInt(report.discharged) },
     {
       label: 'Trivsel',
       value: `${Math.round(report.trivselFrom)} → ${Math.round(report.trivselTo)} %`,

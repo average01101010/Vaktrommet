@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { BALANCE, RARITY } from '@/data/balance'
 import { PROFESSIONS, SKILL_ORDER, SKILLS, TRAITS } from '@/data/professions'
 import { courseCost, courseDurationMin, courseSkipCost } from '@/engine/actions'
+import { maxSkillLevelFor } from '@/engine/modifiers'
 import { xpForLevel } from '@/engine/simulation'
 import { wageOf } from '@/engine/synergy'
 import { gameMinutesToRealMs } from '@/engine/time'
@@ -30,6 +31,7 @@ export function StaffDetailSheet({ staffId, onClose }: { staffId: StaffId | null
   const shifts = shiftsByStaff(game, mods)[s.id] ?? []
   const prof = PROFESSIONS[s.profession]
   const busy = s.sickUntil !== null || s.course !== null
+  const cap = maxSkillLevelFor(s, mods)
 
   return (
     <Sheet open onClose={close} title={s.name}>
@@ -103,12 +105,15 @@ export function StaffDetailSheet({ staffId, onClose }: { staffId: StaffId | null
       <div className="mt-5">
         <div className="mb-1.5 flex items-end justify-between">
           <span className="etikett">Egenskaper og kurs</span>
-          <span className="text-[11px] text-blekk-3">Kurs tar den ansatte ut av vakt</span>
+          <span className="text-[11px] text-blekk-3">
+            Tak for {RARITY[s.rarity].name.toLowerCase()}: <b className="font-mono text-blekk-2">{cap}</b>
+            {cap < BALANCE.skillCeiling && ' · løftes med Videreutdanning'}
+          </span>
         </div>
         <div className="space-y-1.5">
           {SKILL_ORDER.map((id) => {
             const level = s.skills[id]
-            const maxed = level >= mods.maxSkillLevel
+            const maxed = level >= cap
             const cost = courseCost(level)
             const dur = gameMinutesToRealMs(courseDurationMin(level, mods.courseSpeedMult))
             const can = !busy && !maxed && game.resources.fagpoeng >= cost
@@ -117,12 +122,18 @@ export function StaffDetailSheet({ staffId, onClose }: { staffId: StaffId | null
                 <span className="h-7 w-1.5 shrink-0 rounded-full" style={{ background: SKILLS[id].color }} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-bold">{SKILLS[id].name}</div>
-                  <SkillPips level={level} color={SKILLS[id].color} />
+                  <SkillPips level={level} color={SKILLS[id].color} cap={cap} />
                 </div>
                 {maxed ? (
-                  <Chip tone="good">
-                    <Icon name="hake" size={11} /> Topp
-                  </Chip>
+                  level >= BALANCE.skillCeiling ? (
+                    <Chip tone="good">
+                      <Icon name="hake" size={11} /> Topp
+                    </Chip>
+                  ) : (
+                    <Chip title="Videreutdanning under Utstyr & Fag løfter taket">
+                      <Icon name="las" size={11} /> Tak nådd
+                    </Chip>
+                  )
                 ) : (
                   <button
                     className={cx('knapp !gap-1.5 !px-2.5 !py-1.5 !text-xs', can ? 'knapp-primar' : 'knapp-flat')}

@@ -1,15 +1,19 @@
-import { useMemo } from 'react'
-import { SHIFTS, TIERS } from '@/data/balance'
+import { useMemo, useState } from 'react'
+import { BALANCE, SHIFTS, TIERS } from '@/data/balance'
+import { WARD_TYPE_ORDER, WARD_TYPES } from '@/data/wards'
+import { canRotate } from '@/engine/actions'
 import { SYNERGY_BY_ID } from '@/data/synergies'
 import { tierProgress } from '@/engine/modifiers'
 import { dayNumber, formatClock, minutesLeftInShift, gameMinutesToRealMs, shiftProgress } from '@/engine/time'
 import { cx, fmtCompact, fmtDuration, fmtInt, fmtPct } from '@/lib/format'
 import { useGame } from '@/store/gameStore'
-import { useCurrentShift, useGameState, useShiftEvaluation } from '@/store/selectors'
+import { useCurrentShift, useGameState, useLiveMinute, useShiftEvaluation } from '@/store/selectors'
 import type { GameEvent, ShiftId } from '@/types'
 import { Chip, Meter, SectionTitle } from '../ui/bits'
 import { Icon, type IconName } from '../ui/Icon'
 import { CorkBoard } from './CorkBoard'
+import { ResidentsPanel } from './ResidentsPanel'
+import { RotationSheet } from './RotationSheet'
 import type { AgentInput } from './scene/agents'
 import { WardScene } from './WardScene'
 
@@ -21,7 +25,7 @@ const EVENT_STYLE: Record<GameEvent['kind'], { icon: IconName; tone: string }> =
   kurs: { icon: 'kurs', tone: 'text-petrol bg-petrol-soft' },
   nivaa: { icon: 'stjerner', tone: 'text-rav-2 bg-rav-soft' },
   avdeling: { icon: 'pokal', tone: 'text-rav-2 bg-rav-soft' },
-  avvik: { icon: 'avvik', tone: 'text-fare bg-fare-soft' },
+  beboer: { icon: 'bytt', tone: 'text-petrol bg-petrol-soft' },
 }
 
 export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
@@ -29,6 +33,9 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
   const shift = useCurrentShift()
   const ev = useShiftEvaluation(shift)
   const tp = tierProgress(game)
+  const live = useLiveMinute()
+  const [showRotation, setShowRotation] = useState(false)
+  const fagboker = WARD_TYPE_ORDER.filter((id) => (game.prestige.fagboker[id] ?? 0) > 0)
 
   const crew: AgentInput[] = useMemo(
     () =>
@@ -44,7 +51,7 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
     : 0
   const bonuses = ev.synergies.filter((s) => s.tone === 'bonus')
   const problems = ev.synergies.filter((s) => s.tone === 'malus')
-  const left = gameMinutesToRealMs(minutesLeftInShift(game.minute))
+  const left = gameMinutesToRealMs(minutesLeftInShift(live))
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start">
@@ -60,6 +67,7 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
           <WardScene
             className="relative aspect-[10/7] w-full"
             minute={game.minute}
+            lastTickAt={game.lastTickAt}
             upgrades={game.upgrades}
             postIts={game.dilemmas.active.length}
             trivsel={game.ward.trivsel}
@@ -76,7 +84,7 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
                 <Icon name={SHIFT_ICON[shift]} size={15} />
               </span>
               <span className="text-[12.5px] leading-none font-extrabold">{SHIFTS[shift].name}</span>
-              <span className="font-mono text-[12.5px] leading-none font-bold text-blekk-2">{formatClock(game.minute)}</span>
+              <span className="font-mono text-[12.5px] leading-none font-bold text-blekk-2">{formatClock(live)}</span>
             </div>
             <div className="rounded-full bg-papir/90 px-3 py-1.5 font-mono text-[11px] font-bold text-blekk-2 shadow-kort backdrop-blur">
               Døgn {dayNumber(game.minute)}
@@ -93,7 +101,7 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
           {/* Framdrift i vakta */}
           <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-papir/95 to-papir/0 px-3 pt-5 pb-2">
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-blekk/10">
-              <div className="h-full rounded-full bg-skog transition-[width] duration-1000 ease-linear" style={{ width: `${shiftProgress(game.minute) * 100}%` }} />
+              <div className="h-full rounded-full bg-skog transition-[width] duration-1000 ease-linear" style={{ width: `${shiftProgress(live) * 100}%` }} />
             </div>
             <span className="font-mono text-[10.5px] font-bold text-blekk-2">vaktskifte om {fmtDuration(left)}</span>
           </div>
@@ -171,6 +179,8 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
           <CorkBoard />
         </div>
 
+        <ResidentsPanel />
+
         <ShiftReportCard />
 
         {/* ---- Avdelingsnivå ---- */}
@@ -194,9 +204,35 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
               </div>
             </>
           ) : (
-            <p className="mt-2 text-[12px] font-bold text-skog">Høyeste nivå nådd. Gratulerer!</p>
+            <p className="mt-2 text-[12px] font-bold text-skog">Høyeste nivå nådd. Avdelingen er klar til å overleveres.</p>
+          )}
+          {(game.prestige.rotations > 0 || fagboker.length > 0) && (
+            <div className="mt-3 border-t border-blekk/[0.07] pt-2.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Chip tone="rav" title={`+${Math.round(game.prestige.renomme * BALANCE.renommeFagpoeng * 100)} % Fagpoeng og budsjett`}>
+                  <Icon name="stjerner" size={12} /> Renommé <span className="font-mono">{game.prestige.renomme}</span>
+                </Chip>
+                <Chip>{WARD_TYPES[game.wardType].name}</Chip>
+                <Chip className="font-mono">Oppdrag {game.prestige.rotations + 1}</Chip>
+              </div>
+              {fagboker.map((id) => (
+                <div key={id} className="mt-1.5 flex items-center gap-2 text-[11.5px]">
+                  <Icon name="kurs" size={13} className="shrink-0 text-petrol" />
+                  <span className="min-w-0 flex-1 truncate font-bold">«{WARD_TYPES[id].fagbok.name}»</span>
+                  <span className="shrink-0 font-mono text-[10.5px] font-semibold text-blekk-3">
+                    nivå {game.prestige.fagboker[id]} · {WARD_TYPES[id].fagbok.effectText}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {canRotate(game) && (
+            <button className="knapp knapp-rav mt-3 w-full !text-[13px]" onClick={() => setShowRotation(true)}>
+              <Icon name="bytt" size={15} /> Overlever avdelingen og ta nytt oppdrag
+            </button>
           )}
         </div>
+        <RotationSheet open={showRotation} onClose={() => setShowRotation(false)} />
 
         {/* ---- Logg ---- */}
         {game.events.length > 0 && (

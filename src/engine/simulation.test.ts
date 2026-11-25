@@ -1,18 +1,71 @@
 import { describe, expect, it } from 'vitest'
-import { BALANCE } from '@/data/balance'
+import { BALANCE, INSPECTION_TIERS, RARITY } from '@/data/balance'
+import { DILEMMAS } from '@/data/dilemmas'
 import { BANNERS } from '@/data/economy'
-import type { GameState } from '@/types'
-import { assignStaff, buyUpgrade, recruit, resolveDilemma, startCourse, timeSkip, unassignSlot } from './actions'
-import { computeModifiers } from './modifiers'
+import { SKILL_ORDER } from '@/data/professions'
+import { RESIDENT_PROFILES } from '@/data/residents'
+import { WARD_TYPES } from '@/data/wards'
+import type { GameState, SkillId, StaffMember } from '@/types'
+import {
+  assignStaff,
+  buyUpgrade,
+  canRotate,
+  claimInspectionTier,
+  recruit,
+  resolveDilemma,
+  rotateWard,
+  rotationPreview,
+  startCourse,
+  timeSkip,
+  unassignSlot,
+} from './actions'
+import { migrateGameState } from './migrate'
+import { bedsFor, maxSkillLevelFor, modifiersFor, tierThreshold } from './modifiers'
+import { computeDemand, syncResidents } from './residents'
 import { driftScore, qualityIndex } from './scoring'
-import { catchUp, createInitialState, simulate } from './simulation'
+import { catchUp, createInitialState, inspectionAverage, simulate, STATE_VERSION } from './simulation'
+import { emptySkills } from './staffFactory'
 import { evaluateShift } from './synergy'
-import { shiftAt } from './time'
+import { liveMinute, shiftAt, STEP_MS } from './time'
 
 const T0 = Date.UTC(2026, 10, 25, 8, 0, 0)
 const HOUR = 3_600_000
+const DAY = 24 * 60
 const fresh = (): GameState => createInitialState(T0, 1234)
-const mods = (s: GameState) => computeModifiers(s.upgrades)
+const mods = (s: GameState) => modifiersFor(s)
+
+/** En enkel ansatt med akkurat de egenskapene testen trenger. */
+function staffWith(id: string, profession: StaffMember['profession'], skills: Partial<Record<SkillId, number>>): StaffMember {
+  return {
+    id,
+    name: `Test ${id}`,
+    profession,
+    rarity: 'vanlig',
+    skills: { ...emptySkills(), ...skills },
+    stamina: 80,
+    energy: 80,
+    stress: 10,
+    level: 1,
+    xp: 0,
+    trait: null,
+    sickUntil: null,
+    course: null,
+    avatar: { skin: 0, hair: 0, hairStyle: 0, accessory: 0 },
+    badgeNo: '00000',
+    hiredAt: 0,
+  }
+}
+
+/** Bytter ut dagvakta med gitte ansatte. */
+function withDayShift(base: GameState, staff: StaffMember[]): GameState {
+  const s = structuredClone(base)
+  for (const m of staff) {
+    s.staff[m.id] = m
+    if (!s.staffOrder.includes(m.id)) s.staffOrder.push(m.id)
+  }
+  s.roster.dag = [...staff.map((m) => m.id), null, null, null, null, null].slice(0, 5)
+  return s
+}
 
 describe('tid og vakter', () => {
   it('deler døgnet i dag, aften og natt', () => {
@@ -21,6 +74,153 @@ describe('tid og vakter', () => {
     expect(shiftAt(480)).toBe('aften')
     expect(shiftAt(960)).toBe('natt')
     expect(shiftAt(1440)).toBe('dag')
+  })
+
+  it('UI-klokka interpolerer mellom stegene uten å passere neste steg', () => {
+    const s = fresh()
+    expect(liveMinute(s, T0)).toBe(0)
+    expect(liveMinute(s, T0 + STEP_MS / 2)).toBeCloseTo(BALANCE.stepMin / 2)
+    expect(liveMinute(s, T0 + STEP_MS * 5)).toBe(BALANCE.stepMin)
+  })
+})
+
+describe('deterministisk tid', () => {
+  it('bruker én fast steglengde', () => {
+    const r = simulate(fresh(), 100)
+    expect(r.simulated).toBe(90)
+    expect(r.state.minute).toBe(90)
+    expect(simulate(fresh(), 5 * DAY).state.minute % BALANCE.stepMin).toBe(0)
+  })
+
+  it('gir samme resultat for samme seed og tid', () => {
+    expect(simulate(fresh(), 5 * DAY).state).toEqual(simulate(fresh(), 5 * DAY).state)
+  })
+
+  it('rører ikke input-tilstanden', () => {
+    const s = fresh()
+    const snapshot = structuredClone(s)
+    simulate(s, 600)
+    expect(s).toEqual(snapshot)
+  })
+
+  it('sekund-for-sekund gir nøyaktig samme tilstand som én lang innhenting', () => {
+    const total = 40 * 60 * 1000 // 40 minutter = 6–7 døgn i spillet
+    let ticked = fresh()
+    for (let t = 1000; t <= total; t += 1000) ticked = catchUp(ticked, T0 + t).state
+    const once = catchUp(fresh(), T0 + total).state
+    expect(ticked).toEqual(once)
+  })
+
+  it('er uavhengig av hvor ujevnt klienten ticker', () => {
+    const end = T0 + 25 * 60 * 1000
+    let a = fresh()
+    for (const t of [137, 4_211, 60_003, 61_000, 400_777, 1_499_999, 1_500_000]) a = catchUp(a, T0 + t).state
+    expect(a).toEqual(catchUp(fresh(), end).state)
+  })
+
+  it('returnerer samme objekt når ingen hele steg har gått', () => {
+    const s = fresh()
+    expect(catchUp(s, T0 + STEP_MS - 1).state).toBe(s)
+    const next = catchUp(s, T0 + STEP_MS).state
+    expect(next.minute).toBe(BALANCE.stepMin)
+    expect(next.lastTickAt).toBe(T0 + STEP_MS)
+  })
+
+  it('begrenser fravær til 8 timer uten VIP og 24 timer med', () => {
+    const free = catchUp(fresh(), T0 + 20 * HOUR)
+    expect(free.report?.capped).toBe(true)
+    expect(free.report?.capHours).toBe(8)
+    expect(free.state.minute).toBe(8 * 3600 * BALANCE.gameMinutesPerRealSecond)
+    expect(free.state.lastTickAt).toBe(T0 + 20 * HOUR)
+
+    const vipState = fresh()
+    vipState.monetization.vip = true
+    const vip = catchUp(vipState, T0 + 20 * HOUR)
+    expect(vip.report?.capped).toBe(false)
+    expect(vip.state.minute).toBe(20 * 3600 * BALANCE.gameMinutesPerRealSecond)
+    expect(vip.report!.fagpoeng).toBeGreaterThan(free.report!.fagpoeng * 1.5)
+  })
+
+  it('gir ingen progresjon hvis klokka er stilt tilbake', () => {
+    const s = fresh()
+    const r = catchUp(s, T0 - 5 * HOUR)
+    expect(r.state.minute).toBe(0)
+    expect(r.state.resources).toEqual(s.resources)
+    expect(r.state.lastTickAt).toBe(T0 - 5 * HOUR)
+  })
+
+  it('nullstiller tilsynet når en ny uke starter', () => {
+    const s = fresh()
+    s.monetization.vip = true
+    const r = catchUp(s, T0 + 6 * HOUR)
+    expect(r.state.inspection.shifts).toBeGreaterThan(0)
+    const nextWeek = catchUp(r.state, T0 + 8 * 24 * HOUR)
+    expect(nextWeek.state.inspection.weekKey).not.toBe(s.inspection.weekKey)
+  })
+})
+
+describe('beboere og behov', () => {
+  it('starter med fullt belegg og behov summert fra profilene', () => {
+    const s = fresh()
+    expect(s.residents).toHaveLength(BALANCE.baseBeds)
+    expect(new Set(s.residents.map((r) => r.room)).size).toBe(BALANCE.baseBeds)
+    for (const shift of ['dag', 'aften', 'natt'] as const) {
+      const demand = computeDemand(s, shift, mods(s))
+      for (const skill of SKILL_ORDER) {
+        const expected = s.residents.reduce((n, r) => n + RESIDENT_PROFILES[r.profile].demand[shift][skill] * r.tyngde, 0)
+        expect(demand[skill]).toBeCloseTo(expected)
+      }
+    }
+  })
+
+  it('behovet følger hvem som faktisk ligger på avdelingen', () => {
+    const s = fresh()
+    const before = computeDemand(s, 'dag', mods(s))
+    const changed = structuredClone(s)
+    changed.residents[0] = { ...changed.residents[0], profile: 'saar', tyngde: 1.3 }
+    changed.residents[1] = { ...changed.residents[1], profile: 'saar', tyngde: 1.3 }
+    changed.residents[2] = { ...changed.residents[2], profile: 'saar', tyngde: 1.3 }
+    const after = computeDemand(changed, 'dag', mods(changed))
+    expect(after.saarstell).toBeGreaterThan(before.saarstell + 1)
+
+    const demens = structuredClone(s)
+    for (const r of demens.residents) r.profile = 'kognitiv'
+    const natt = computeDemand(demens, 'natt', mods(demens))
+    expect(natt.deeskalering).toBeGreaterThan(natt.grunnstell * 3)
+    expect(natt.saarstell).toBe(0)
+  })
+
+  it('tyngre beboere gir større behov, og natta krever mindre enn dagen', () => {
+    const s = fresh()
+    const heavy = structuredClone(s)
+    for (const r of heavy.residents) r.tyngde = BALANCE.tyngdeMax
+    const light = structuredClone(s)
+    for (const r of light.residents) r.tyngde = BALANCE.tyngdeMin
+    const sum = (d: Record<SkillId, number>) => SKILL_ORDER.reduce((n, k) => n + d[k], 0)
+    expect(sum(computeDemand(heavy, 'dag', mods(s)))).toBeGreaterThan(sum(computeDemand(light, 'dag', mods(s))) * 1.5)
+    expect(sum(computeDemand(s, 'natt', mods(s)))).toBeLessThan(sum(computeDemand(s, 'dag', mods(s))) * 0.75)
+  })
+
+  it('skriver ut beboere og tar inn nye, så behovet endrer seg over tid', () => {
+    const s = fresh()
+    const { state, totals } = simulate(s, 60 * DAY)
+    expect(totals.discharged).toBeGreaterThan(BALANCE.baseBeds)
+    expect(state.residents).toHaveLength(BALANCE.baseBeds)
+    const startIds = new Set(s.residents.map((r) => r.id))
+    expect(state.residents.every((r) => !startIds.has(r.id))).toBe(true)
+    expect(state.residents.every((r) => r.dischargeAt > state.minute)).toBe(true)
+    expect(computeDemand(state, 'dag', mods(state))).not.toEqual(computeDemand(s, 'dag', mods(s)))
+  })
+
+  it('ny fløy gir flere senger som fylles med en gang', () => {
+    const s = fresh()
+    s.resources.budget = 10_000_000
+    s.tier = 2
+    s.upgrades.dognrytmelys = 1
+    const r = buyUpgrade(s, 'nyfloy')
+    if (!r.ok) throw new Error(r.reason)
+    expect(bedsFor(mods(r.state))).toBe(BALANCE.baseBeds + 3)
+    expect(r.state.residents).toHaveLength(BALANCE.baseBeds + 3)
   })
 })
 
@@ -40,8 +240,7 @@ describe('synergimotoren', () => {
     const s = fresh()
     const before = evaluateShift(s, 'natt', mods(s))
     const r = assignStaff(s, 'natt', 1, 's1')
-    expect(r.ok).toBe(true)
-    if (!r.ok) return
+    if (!r.ok) throw new Error(r.reason)
     const after = evaluateShift(r.state, 'natt', mods(r.state))
     expect(after.coverage).toBeGreaterThan(before.coverage)
     expect(after.rates.fagpoeng).toBeGreaterThan(before.rates.fagpoeng)
@@ -49,7 +248,7 @@ describe('synergimotoren', () => {
     expect(after.rates.avvik).toBeLessThan(before.rates.avvik)
   })
 
-  it('ubemannet vakt gir nesten ingen inntekt og mange avvik', () => {
+  it('ubemannet vakt gir ingen Fagpoeng og mange avvik', () => {
     let s = fresh()
     for (let i = 0; i < 3; i++) {
       const r = unassignSlot(s, 'dag', i)
@@ -65,32 +264,113 @@ describe('synergimotoren', () => {
   it('hindrer mer enn to vakter per ansatt', () => {
     const s = fresh()
     const a = assignStaff(s, 'aften', 2, 's1')
-    expect(a.ok).toBe(true)
-    if (!a.ok) return
-    const b = assignStaff(a.state, 'natt', 1, 's1')
-    expect(b.ok).toBe(false)
+    if (!a.ok) throw new Error(a.reason)
+    expect(assignStaff(a.state, 'natt', 1, 's1').ok).toBe(false)
+  })
+})
+
+describe('ingen krysskompensasjon', () => {
+  it('overdekning i Stell veier ikke opp for manglende Medisin og Sår', () => {
+    const s = fresh()
+    const demand = computeDemand(s, 'dag', mods(s))
+    // Fem assistenter som bare kan stell: Stell er mer enn dekket, resten udekket.
+    const crew = [1, 2, 3, 4, 5].map((i) => staffWith(`x${i}`, 'assistent', { grunnstell: 5 }))
+    s.upgrades.nyfloy = 2 // åpner alle fem vaktplassene
+    const state = withDayShift(s, crew)
+    const ev = evaluateShift(state, 'dag', mods(state), demand)
+
+    expect(ev.supply.grunnstell).toBeGreaterThan(demand.grunnstell * 2)
+    expect(ev.coverageBySkill.grunnstell).toBe(1)
+    expect(ev.coverageBySkill.medikament).toBe(0)
+    expect(ev.coverageBySkill.saarstell).toBe(0)
+    const total = SKILL_ORDER.reduce((n, k) => n + demand[k], 0)
+    expect(ev.coverage).toBeCloseTo(demand.grunnstell / total)
+    expect(ev.workload).toBeGreaterThan(1.5)
+  })
+
+  it('mer av en egenskap som allerede er dekket, endrer verken dekning eller Fagpoeng', () => {
+    const s = fresh()
+    s.upgrades.nyfloy = 2
+    const demand = computeDemand(s, 'dag', mods(s))
+    const base = [
+      staffWith('a', 'sykepleier', { medikament: 3, saarstell: 3, dokumentasjon: 2 }),
+      staffWith('b', 'assistent', { grunnstell: 5 }),
+      staffWith('c', 'assistent', { grunnstell: 5 }),
+      staffWith('d', 'assistent', { grunnstell: 5 }),
+    ]
+    const without = withDayShift(s, base)
+    const withExtra = withDayShift(s, [...base, staffWith('e', 'assistent', { grunnstell: 5 })])
+    const a = evaluateShift(without, 'dag', mods(without), demand)
+    const b = evaluateShift(withExtra, 'dag', mods(withExtra), demand)
+    expect(a.coverageBySkill.grunnstell).toBe(1)
+    expect(b.coverage).toBeCloseTo(a.coverage, 10)
+    expect(b.workload).toBeCloseTo(a.workload, 10)
+    expect(b.rates.budgetNet).toBeLessThan(a.rates.budgetNet) // den ekstra lønna er ren kostnad
+    expect(b.utilization).toBeLessThan(a.utilization)
+  })
+
+  it('belastningen letter bare når den svakeste egenskapen også er overdekket', () => {
+    const s = fresh()
+    s.upgrades.nyfloy = 2
+    const demand = computeDemand(s, 'dag', mods(s))
+    const all = Object.fromEntries(SKILL_ORDER.map((k) => [k, 5])) as Record<SkillId, number>
+    const strong = [1, 2, 3, 4, 5].map((i) => staffWith(`s${i}x`, 'sykepleier', all))
+    const state = withDayShift(s, strong)
+    const ev = evaluateShift(state, 'dag', mods(state), demand)
+    expect(ev.coverage).toBe(1)
+    expect(ev.workload).toBeLessThan(1)
+
+    const weakOne = structuredClone(strong)
+    for (const m of weakOne) m.skills.saarstell = 0
+    const gapState = withDayShift(s, weakOne)
+    const gap = evaluateShift(gapState, 'dag', mods(gapState), demand)
+    expect(gap.coverage).toBeLessThan(1)
+    expect(gap.workload).toBeGreaterThan(1)
+  })
+
+  it('udekket Medisin slår direkte ut på avvik og trivsel', () => {
+    const s = fresh()
+    const crew = (med: number) => [
+      staffWith('a', 'sykepleier', { medikament: med, saarstell: 4, dokumentasjon: 4, grunnstell: 3 }),
+      staffWith('b', 'helsefagarbeider', { grunnstell: 5, ernaering: 5, miljoterapi: 4 }),
+      staffWith('c', 'vernepleier', { miljoterapi: 4, deeskalering: 4, dokumentasjon: 3, medikament: med }),
+    ]
+    const ok = withDayShift(s, crew(4))
+    const none = withDayShift(s, crew(0))
+    const a = evaluateShift(ok, 'dag', mods(ok))
+    const b = evaluateShift(none, 'dag', mods(none))
+    expect(b.criticalGap.medikament).toBe(1)
+    expect(b.rates.avvik).toBeGreaterThan(a.rates.avvik * 3)
+    expect(a.trivselTarget - b.trivselTarget).toBeGreaterThan(BALANCE.trivselCriticalMed)
+  })
+
+  it('uten sykepleier halveres Medisin-kapasiteten, vernepleier demper tapet', () => {
+    const s = fresh()
+    const skills = { medikament: 4, saarstell: 4, grunnstell: 3 }
+    const nurse = withDayShift(s, [staffWith('a', 'sykepleier', skills)])
+    const hfa = withDayShift(s, [staffWith('a', 'helsefagarbeider', skills)])
+    const vpl = withDayShift(s, [staffWith('a', 'vernepleier', skills)])
+    const n = evaluateShift(nurse, 'dag', mods(s))
+    const h = evaluateShift(hfa, 'dag', mods(s))
+    const v = evaluateShift(vpl, 'dag', mods(s))
+    expect(n.nurseOnDuty).toBe(true)
+    expect(h.nurseOnDuty).toBe(false)
+    expect(h.supply.medikament).toBeCloseTo(n.supply.medikament * BALANCE.noNurseMedFactor)
+    expect(h.supply.saarstell).toBeCloseTo(n.supply.saarstell * BALANCE.noNurseSaarFactor)
+    expect(v.supply.medikament).toBeCloseTo(n.supply.medikament * BALANCE.noNurseMedFactorVernepleier)
+    expect(h.supply.grunnstell).toBeCloseTo(n.supply.grunnstell)
+    expect(h.rates.avvik).toBeGreaterThan(n.rates.avvik)
   })
 })
 
 describe('simulering', () => {
-  it('er deterministisk for samme seed og tid', () => {
-    const a = simulate(fresh(), 24 * 60 * 5).state
-    const b = simulate(fresh(), 24 * 60 * 5).state
-    expect(a).toEqual(b)
-  })
-
-  it('rører ikke input-tilstanden', () => {
-    const s = fresh()
-    const snapshot = structuredClone(s)
-    simulate(s, 600)
-    expect(s).toEqual(snapshot)
-  })
-
-  it('tjener Fagpoeng og budsjett og lager vaktrapport', () => {
+  it('tjener Fagpoeng og budsjett og lager vaktrapport med tilsynspoeng', () => {
     const { state, totals } = simulate(fresh(), 8 * 60)
     expect(totals.fagpoeng).toBeGreaterThan(10)
     expect(totals.budget).toBeGreaterThan(500)
     expect(state.shift.last?.shift).toBe('dag')
+    expect(state.shift.last?.inspectionScore).toBeGreaterThan(0)
+    expect(state.shift.last?.inspectionScore).toBeLessThanOrEqual(100)
     expect(state.shift.current.shift).toBe('aften')
     expect(state.lifetime.shiftsCompleted).toBe(1)
   })
@@ -105,15 +385,8 @@ describe('simulering', () => {
     expect(double.stress).toBeGreaterThan(single.stress)
   })
 
-  it('grove offline-steg gir omtrent samme resultat som fine steg', () => {
-    const fine = simulate(fresh(), 24 * 60 * 3, false)
-    const coarse = simulate(fresh(), 24 * 60 * 3, true)
-    const rel = Math.abs(fine.totals.fagpoeng - coarse.totals.fagpoeng) / fine.totals.fagpoeng
-    expect(rel).toBeLessThan(0.05)
-  })
-
   it('holder verdier innenfor gyldige grenser over lang tid', () => {
-    const { state } = simulate(fresh(), 24 * 60 * 60, true)
+    const { state } = simulate(fresh(), 60 * DAY)
     expect(state.ward.trivsel).toBeGreaterThanOrEqual(0)
     expect(state.ward.trivsel).toBeLessThanOrEqual(100)
     for (const id of state.staffOrder) {
@@ -125,91 +398,275 @@ describe('simulering', () => {
     }
     expect(state.dilemmas.active.length).toBeLessThanOrEqual(BALANCE.dilemmaMaxActive)
     expect(Number.isFinite(state.resources.budget)).toBe(true)
+    expect(state.quality.competence).toBeGreaterThan(0)
+    expect(state.quality.competence).toBeLessThanOrEqual(1)
   })
 })
 
-describe('offline-beregning', () => {
-  it('ticker ett steg per sekund i sanntid uten rapport', () => {
+describe('egenskapstak', () => {
+  it('sjeldenhet setter taket, og videreutdanning løfter det', () => {
     const s = fresh()
-    const r = catchUp(s, T0 + 1000)
-    expect(r.report).toBeNull()
-    expect(r.state.minute).toBe(BALANCE.liveStepMin)
+    expect(maxSkillLevelFor({ rarity: 'vanlig' }, mods(s))).toBe(RARITY.vanlig.maxSkill)
+    expect(maxSkillLevelFor({ rarity: 'ildsjel' }, mods(s))).toBe(5)
+    s.upgrades.videreutdanning = 2
+    expect(maxSkillLevelFor({ rarity: 'vanlig' }, mods(s))).toBe(4)
+    s.upgrades.videreutdanning = 5
+    expect(maxSkillLevelFor({ rarity: 'vanlig' }, mods(s))).toBe(5)
+    expect(maxSkillLevelFor({ rarity: 'spesialist' }, mods(s))).toBe(BALANCE.skillCeiling)
   })
 
-  it('tar vare på millisekunder som ikke fyller et helt steg', () => {
-    let s = fresh()
-    s = catchUp(s, T0 + 600).state
-    expect(s.minute).toBe(0)
-    s = catchUp(s, T0 + 1200).state
-    expect(s.minute).toBe(BALANCE.liveStepMin)
-  })
-
-  it('begrenser fravær til 8 timer uten VIP', () => {
+  it('kurs kan ikke løfte en vanlig ansatt over taket uten videreutdanning', () => {
     const s = fresh()
-    const r = catchUp(s, T0 + 20 * HOUR)
-    expect(r.report?.capped).toBe(true)
-    expect(r.report?.capHours).toBe(8)
-    expect(r.state.minute).toBe(8 * 3600 * BALANCE.gameMinutesPerRealSecond)
-    expect(r.state.lastTickAt).toBe(T0 + 20 * HOUR)
-  })
+    s.resources.fagpoeng = 100_000
+    expect(s.staff.s3.rarity).toBe('vanlig')
+    expect(s.staff.s3.skills.grunnstell).toBe(3)
+    expect(startCourse(s, 's3', 'grunnstell').ok).toBe(false)
+    expect(startCourse(s, 's3', 'saarstell').ok).toBe(true)
 
-  it('gir 24 timers buffer med VIP', () => {
-    const s = fresh()
-    s.monetization.vip = true
-    const r = catchUp(s, T0 + 20 * HOUR)
-    expect(r.report?.capped).toBe(false)
-    expect(r.state.minute).toBe(20 * 3600 * BALANCE.gameMinutesPerRealSecond)
-    const free = catchUp(fresh(), T0 + 20 * HOUR)
-    expect(r.report!.fagpoeng).toBeGreaterThan(free.report!.fagpoeng * 1.5)
-  })
-
-  it('gir ingen progresjon hvis klokka er stilt tilbake', () => {
-    const s = fresh()
-    const r = catchUp(s, T0 - 5 * HOUR)
-    expect(r.state.minute).toBe(0)
-    expect(r.state.resources).toEqual(s.resources)
-  })
-
-  it('nullstiller tilsynet når en ny uke starter', () => {
-    const s = fresh()
-    s.inspection.points = 999
-    const r = catchUp(s, T0 + 8 * 24 * HOUR)
-    expect(r.state.inspection.weekKey).not.toBe(s.inspection.weekKey)
-    expect(r.state.inspection.points).toBe(0)
+    s.upgrades.videreutdanning = 2
+    const r = startCourse(s, 's3', 'grunnstell')
+    if (!r.ok) throw new Error(r.reason)
+    expect(evaluateShift(r.state, 'dag', mods(r.state)).absent).toContain('s3')
+    const done = simulate(r.state, 3 * DAY).state
+    expect(done.staff.s3.course).toBeNull()
+    expect(done.staff.s3.skills.grunnstell).toBe(4)
   })
 })
 
-describe('poeng', () => {
-  it('Driftsligaen vokser med tid, Kvalitetsindeksen holder seg i 0–1000', () => {
-    const s0 = fresh()
-    const s1 = simulate(s0, 24 * 60 * 4, true).state
-    expect(driftScore(s1)).toBeGreaterThan(driftScore(s0))
-    const q = qualityIndex(s1)
+describe('tilsyn og kvalitetsindeks', () => {
+  it('måler snitt per fullførte vakt, så tidshopp gir ikke bedre resultat', () => {
+    const s = simulate(fresh(), 10 * DAY).state
+    expect(s.inspection.shifts).toBe(30)
+    const avg = inspectionAverage(s)
+    expect(avg).toBeGreaterThan(0)
+    expect(avg).toBeLessThanOrEqual(100)
+
+    s.resources.kaffekopper = 500
+    const r = timeSkip(s, 'ekstravakt_8')
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.state.inspection.shifts).toBeGreaterThan(s.inspection.shifts * 5)
+    expect(Math.abs(inspectionAverage(r.state) - avg)).toBeLessThan(12)
+    expect(driftScore(r.state)).toBeGreaterThan(driftScore(s) * 1.5)
+  })
+
+  it('belønning krever nok vakter og høyt nok snitt', () => {
+    const s = fresh()
+    s.inspection.scoreSum = 95 * 3
+    s.inspection.shifts = 3
+    expect(claimInspectionTier(s, 0).ok).toBe(false)
+    s.inspection.scoreSum = 60 * BALANCE.inspectionMinShifts
+    s.inspection.shifts = BALANCE.inspectionMinShifts
+    expect(claimInspectionTier(s, 0).ok).toBe(true)
+    expect(claimInspectionTier(s, INSPECTION_TIERS.length - 1).ok).toBe(false)
+  })
+
+  it('Kvalitetsindeksen vekter ressursbruk 30 % og holder seg i 0–1000', () => {
+    const s = simulate(fresh(), 4 * DAY).state
+    const q = qualityIndex(s)
+    expect(q.parts.reduce((n, p) => n + p.weight, 0)).toBeCloseTo(1)
+    const resource = q.parts.filter((p) => p.id === 'efficiency' || p.id === 'competence')
+    expect(resource.reduce((n, p) => n + p.weight, 0)).toBeCloseTo(0.3)
     expect(q.index).toBeGreaterThan(0)
     expect(q.index).toBeLessThanOrEqual(1000)
     expect(q.qualified).toBe(true)
   })
 
-  it('tidshopp flytter Driftsligaen, men ikke Kvalitetsindeksen nevneverdig', () => {
-    const s = simulate(fresh(), 24 * 60 * 4, true).state
-    s.resources.kaffekopper = 500
-    const r = timeSkip(s, 'ekstravakt_8')
-    if (!r.ok) throw new Error(r.reason)
-    expect(driftScore(r.state)).toBeGreaterThan(driftScore(s) * 1.5)
-    expect(Math.abs(qualityIndex(r.state).index - qualityIndex(s).index)).toBeLessThan(120)
+  it('en overkvalifisert stab taper på kompetanseutnyttelse', () => {
+    const s = fresh()
+    s.upgrades.nyfloy = 2
+    const all = Object.fromEntries(SKILL_ORDER.map((k) => [k, 5])) as Record<SkillId, number>
+    const lean = withDayShift(s, [1, 2, 3].map((i) => staffWith(`l${i}`, 'sykepleier', all)))
+    const bloated = withDayShift(s, [1, 2, 3, 4, 5].map((i) => staffWith(`l${i}`, 'sykepleier', all)))
+    const demand = computeDemand(s, 'dag', mods(s))
+    const a = evaluateShift(lean, 'dag', mods(lean), demand)
+    const b = evaluateShift(bloated, 'dag', mods(bloated), demand)
+    expect(b.utilization).toBeLessThan(a.utilization)
   })
 })
 
-describe('handlinger', () => {
+describe('avdelingsrotasjon', () => {
+  const endgame = (): GameState => {
+    const s = simulate(fresh(), 2 * DAY).state
+    s.lifetime.fagpoeng = 400_000
+    s.lifetime.budget = 5_000_000
+    s.tier = 5
+    s.upgrades.espressomaskin = 5
+    s.upgrades.stillerapport = 5
+    s.resources.kaffekopper = 77
+    s.staff.s1.level = 8
+    s.staff.s1.stress = 60
+    return s
+  }
+
+  it('låses opp først på toppnivået', () => {
+    expect(canRotate(fresh())).toBe(false)
+    expect(rotateWard(fresh(), { wardType: 'demens', keepStaff: [] }).ok).toBe(false)
+    expect(canRotate(endgame())).toBe(true)
+  })
+
+  it('avviser ugyldige valg', () => {
+    const s = endgame()
+    expect(rotateWard(s, { wardType: 'sykehjem', keepStaff: [] }).ok).toBe(false)
+    expect(rotateWard(s, { wardType: 'demens', keepStaff: ['s1', 's2', 's3', 's4'] }).ok).toBe(false)
+    expect(rotateWard(s, { wardType: 'demens', keepStaff: ['finnes-ikke'] }).ok).toBe(false)
+  })
+
+  it('beholder renommé, fagbok, Kaffekopper og nøkkelansatte – resten starter på nytt', () => {
+    const s = endgame()
+    const preview = rotationPreview(s)
+    const before = driftScore(s)
+    const r = rotateWard(s, { wardType: 'lindrende', keepStaff: ['s1', 's2'], wardName: 'Lindrende enhet, 3. etg.' })
+    if (!r.ok) throw new Error(r.reason)
+    const n = r.state
+
+    expect(n.wardType).toBe('lindrende')
+    expect(n.profile.wardName).toBe('Lindrende enhet, 3. etg.')
+    expect(n.prestige.rotations).toBe(1)
+    expect(n.prestige.renomme).toBe(preview.renommeGain)
+    expect(preview.renommeGain).toBeGreaterThanOrEqual(BALANCE.renommeBase)
+    expect(n.prestige.fagboker.sykehjem).toBe(1)
+    expect(n.prestige.history).toHaveLength(1)
+    expect(n.resources.kaffekopper).toBe(77 + BALANCE.rotationKaffekopper)
+
+    expect(n.tier).toBe(0)
+    expect(n.lifetime.fagpoeng).toBe(0)
+    expect(n.resources.budget).toBe(BALANCE.start.budget)
+    expect(Object.values(n.upgrades).every((l) => l === 0)).toBe(true)
+
+    expect(n.staffOrder).toHaveLength(BALANCE.rotationStaffCount)
+    expect(n.staff.s1.level).toBe(8)
+    expect(n.staff.s1.stress).toBe(15)
+    expect(n.staff.s2).toBeDefined()
+    expect(n.staff.s3).toBeUndefined()
+    const rostered = Object.values(n.roster).flat().filter(Boolean)
+    expect(rostered.length).toBeGreaterThan(3)
+    expect(rostered.every((id) => id! in n.staff)).toBe(true)
+
+    // Driftsligaen mister ikke det du har bygget.
+    expect(driftScore(n)).toBeGreaterThanOrEqual(before)
+    expect(n.minute).toBe(s.minute)
+  })
+
+  it('ny avdelingstype gir egne beboerprofiler og modifikatorer', () => {
+    const r = rotateWard(endgame(), { wardType: 'demens', keepStaff: [] })
+    if (!r.ok) throw new Error(r.reason)
+    const allowed = Object.keys(WARD_TYPES.demens.profileWeights)
+    expect(r.state.residents).toHaveLength(BALANCE.baseBeds)
+    expect(r.state.residents.every((x) => allowed.includes(x.profile))).toBe(true)
+    expect(r.state.residents.filter((x) => x.profile === 'kognitiv').length).toBeGreaterThanOrEqual(3)
+    const m = mods(r.state)
+    expect(m.demandMult.natt).toBeCloseTo(1.15)
+    // Renommé og fagbok virker fra første vakt på den nye avdelingen.
+    const base = modifiersFor({ ...r.state, prestige: fresh().prestige })
+    expect(m.fagpoengMult).toBeGreaterThan(base.fagpoengMult * 1.1)
+  })
+
+  it('nivåtersklene øker for hver overleverte avdeling, og spillet går videre', () => {
+    expect(tierThreshold(5, 1)).toBeGreaterThan(tierThreshold(5, 0))
+    const r = rotateWard(endgame(), { wardType: 'korttid', keepStaff: ['s1'] })
+    if (!r.ok) throw new Error(r.reason)
+    const later = simulate(r.state, 20 * DAY).state
+    expect(later.lifetime.fagpoeng).toBeGreaterThan(0)
+    expect(later.residents).toHaveLength(BALANCE.baseBeds)
+    expect(later.tier).toBeGreaterThanOrEqual(1)
+  })
+
+  it('fagbøker stiger i nivå, men ikke over maks', () => {
+    let s = endgame()
+    for (let i = 0; i < BALANCE.fagbokMaxLevel + 2; i++) {
+      const r = rotateWard(s, { wardType: 'demens', keepStaff: [] })
+      if (!r.ok) throw new Error(r.reason)
+      s = r.state
+      s.tier = 5
+    }
+    expect(s.prestige.fagboker.demens).toBe(BALANCE.fagbokMaxLevel)
+    expect(s.prestige.fagboker.sykehjem).toBe(1)
+  })
+})
+
+describe('trygg lagringsmigrering', () => {
+  /** En lagring slik versjon 1 så ut. */
+  const v1Save = (): Record<string, unknown> => {
+    const s = simulate(fresh(), DAY).state as unknown as Record<string, any>
+    s.version = 1
+    s.carryMs = 512
+    s.minute = 14_644
+    s.resources = { budget: 123_456, fagpoeng: 789, kaffekopper: 42 }
+    s.upgrades = { espressomaskin: 2, takheis: 1 }
+    s.inspection = { weekKey: s.inspection.weekKey, points: 31_000, claimed: [0] }
+    delete s.staff.s6
+    s.staffOrder = s.staffOrder.filter((id: string) => id !== 's6')
+    s.roster.aften = ['s2', 's6', null, null, null]
+    delete s.residents
+    delete s.prestige
+    delete s.wardType
+    delete s.quality.competence
+    delete s.ward.residentCounter
+    delete s.shift.current.focusSum
+    delete s.shift.last.inspectionScore
+    return s
+  }
+
+  it('beholder spillerens framdrift og fyller nye felter med trygge verdier', () => {
+    const m = migrateGameState(v1Save(), T0 + 5000)
+    expect(m.version).toBe(STATE_VERSION)
+    expect(m.resources).toEqual({ budget: 123_456, fagpoeng: 789, kaffekopper: 42 })
+    expect(m.upgrades.espressomaskin).toBe(2)
+    expect(m.upgrades.takheis).toBe(1)
+    expect(m.upgrades.kompetansesenter).toBe(0)
+
+    // Stab: akkurat de spilleren hadde – oppsagte kommer ikke tilbake.
+    expect(m.staffOrder).toEqual(['s1', 's2', 's3', 's4', 's5'])
+    expect(m.staff.s6).toBeUndefined()
+    expect(m.roster.aften).toEqual(['s2', null, null, null, null])
+
+    // Nye felter
+    expect(m.wardType).toBe('sykehjem')
+    expect(m.prestige.rotations).toBe(0)
+    expect(m.residents).toHaveLength(BALANCE.baseBeds)
+    expect(m.residents.every((r) => r.dischargeAt > m.minute)).toBe(true)
+    expect(m.quality.competence).toBeGreaterThan(0)
+    expect(m.inspection).toEqual({ weekKey: m.inspection.weekKey, scoreSum: 0, shifts: 0, claimed: [] })
+    expect(m.shift.last?.inspectionScore).toBe(0)
+    expect(m.shift.current.focusSum).toBe(0)
+
+    // Tid: minuttet ligger på et helt steg, og gamle felter er borte.
+    expect(m.minute).toBe(14_640)
+    expect('carryMs' in m).toBe(false)
+  })
+
+  it('er idempotent og gir en tilstand motoren kan kjøre videre på', () => {
+    const once = migrateGameState(v1Save(), T0 + 5000)
+    expect(migrateGameState(structuredClone(once), T0 + 5000)).toEqual(once)
+    const later = simulate(once, 5 * DAY).state
+    expect(later.lifetime.shiftsCompleted).toBeGreaterThan(once.lifetime.shiftsCompleted)
+    expect(Number.isFinite(later.resources.fagpoeng)).toBe(true)
+  })
+
+  it('endrer ikke en gyldig lagring av dagens versjon', () => {
+    const s = simulate(fresh(), 3 * DAY).state
+    expect(migrateGameState(structuredClone(s), s.lastTickAt)).toEqual(s)
+  })
+
+  it('tåler skadet lagring og tidsstempel fra framtida', () => {
+    expect(migrateGameState(null, T0).version).toBe(STATE_VERSION)
+    expect(migrateGameState('tull', T0).staffOrder.length).toBeGreaterThan(0)
+    const broken = migrateGameState({ version: 1, resources: { budget: 'mye' }, staff: 7, lastTickAt: T0 + 10 * HOUR }, T0)
+    expect(broken.resources.budget).toBe(BALANCE.start.budget)
+    expect(broken.staffOrder.length).toBeGreaterThan(0)
+    expect(broken.lastTickAt).toBe(T0)
+  })
+})
+
+describe('handlinger og innhold', () => {
   it('kjøper oppgradering og trekker budsjett', () => {
     const s = fresh()
     s.resources.budget = 5000
     const r = buyUpgrade(s, 'espressomaskin')
-    expect(r.ok).toBe(true)
-    if (!r.ok) return
+    if (!r.ok) throw new Error(r.reason)
     expect(r.state.upgrades.espressomaskin).toBe(1)
     expect(r.state.resources.budget).toBe(5000 - 1800)
-    expect(computeModifiers(r.state.upgrades).stressMult).toBeLessThan(1)
+    expect(mods(r.state).stressMult).toBeLessThan(1)
     expect(buyUpgrade(s, 'takheis').ok).toBe(false)
   })
 
@@ -217,21 +674,22 @@ describe('handlinger', () => {
     const s = fresh()
     const uid = s.dilemmas.active[0].uid
     const r = resolveDilemma(s, uid, 'vipps')
-    expect(r.ok).toBe(true)
-    if (!r.ok) return
+    if (!r.ok) throw new Error(r.reason)
     expect(r.state.dilemmas.active).toHaveLength(0)
     expect(r.state.resources.kaffekopper).toBe(s.resources.kaffekopper + 2)
   })
 
-  it('kurs gjør den ansatte utilgjengelig og øker egenskapen når det er ferdig', () => {
-    const s = fresh()
-    s.resources.fagpoeng = 1000
-    const r = startCourse(s, 's3', 'saarstell')
-    if (!r.ok) throw new Error(r.reason)
-    expect(evaluateShift(r.state, 'dag', mods(r.state)).absent).toContain('s3')
-    const done = simulate(r.state, 24 * 60).state
-    expect(done.staff.s3.course).toBeNull()
-    expect(done.staff.s3.skills.saarstell).toBe(s.staff.s3.skills.saarstell + 1)
+  it('alle dilemmaer har faglig begrunnelse, kilde og tre unike valg', () => {
+    expect(DILEMMAS).toHaveLength(24)
+    expect(new Set(DILEMMAS.map((d) => d.id)).size).toBe(24)
+    for (const d of DILEMMAS) {
+      expect(d.fagligBegrunnelse.length, d.id).toBeGreaterThan(60)
+      expect(d.kilde.length, d.id).toBeGreaterThan(3)
+      expect(d.options, d.id).toHaveLength(3)
+      expect(new Set(d.options.map((o) => o.id)).size, d.id).toBe(3)
+      // Minst ett valg må alltid være tilgjengelig uten kompetansekrav.
+      expect(d.options.some((o) => !o.requires), d.id).toBe(true)
+    }
   })
 
   it('rekruttering følger droprates og pity-garanti', () => {
@@ -248,6 +706,7 @@ describe('handlinger', () => {
       if (hired.rarity === 'spesialist' || hired.rarity === 'ildsjel') sinceRare = 0
       else sinceRare++
       worstGap = Math.max(worstGap, sinceRare)
+      for (const skill of SKILL_ORDER) expect(hired.skills[skill]).toBeLessThanOrEqual(RARITY[hired.rarity].maxSkill)
       s = r.state
       // Rydd staben så vi ikke treffer taket.
       delete s.staff[r.staffId]
@@ -257,5 +716,14 @@ describe('handlinger', () => {
     expect(counts.vanlig / 600).toBeGreaterThan(0.3)
     expect(counts.vanlig / 600).toBeLessThan(0.55)
     expect(counts.spesialist + counts.ildsjel).toBeGreaterThan(60)
+  })
+
+  it('syncResidents er stabil når ingenting skal endres', () => {
+    const s = fresh()
+    const d = structuredClone(s)
+    const change = syncResidents(d, mods(d))
+    expect(change.admitted).toHaveLength(0)
+    expect(change.discharged).toHaveLength(0)
+    expect(d.residents).toEqual(s.residents)
   })
 })

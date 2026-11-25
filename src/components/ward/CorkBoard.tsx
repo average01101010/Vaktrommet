@@ -114,6 +114,13 @@ export function CorkBoard() {
                 <div className="mt-3">
                   <EffectChips effect={result.applied} />
                 </div>
+                <div className="mt-4 rounded-2xl border border-petrol/15 bg-petrol-soft/60 px-4 py-3 text-left">
+                  <div className="flex items-center gap-1.5 text-[10.5px] font-extrabold tracking-[0.1em] text-petrol uppercase">
+                    <Icon name="kurs" size={14} /> Faglig begrunnelse
+                  </div>
+                  <p className="mt-1.5 text-[13px] leading-snug text-blekk">{def.fagligBegrunnelse}</p>
+                  <p className="mt-2 text-[11.5px] leading-snug font-bold text-petrol">{def.kilde}</p>
+                </div>
                 <button className="knapp knapp-primar mt-5 w-full" onClick={close}>
                   Videre
                 </button>

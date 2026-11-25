@@ -3,9 +3,9 @@ import { BALANCE, INSPECTION_TIERS } from '@/data/balance'
 import { PASS_XP_PER_LEVEL, SEASON_PASS_LEVELS, SHOP_ITEMS } from '@/data/economy'
 import { COUNTIES, PLAYER_PROFESSION_ORDER, PLAYER_PROFESSIONS } from '@/data/league'
 import { SKILLS } from '@/data/professions'
-import { passLevel } from '@/engine/actions'
+import { inspectionQualified, passLevel } from '@/engine/actions'
 import { driftScore, qualityIndex } from '@/engine/scoring'
-import { inspectionFor } from '@/engine/simulation'
+import { inspectionAverage, inspectionFor } from '@/engine/simulation'
 import { isoWeekNumber, msUntilNextSeason, msUntilNextWeek } from '@/engine/time'
 import { cx, fmtCompact, fmtDuration, fmtInt, fmtPct } from '@/lib/format'
 import { fetchLeaderboard, type LeaderboardResult } from '@/services/leaderboard'
@@ -21,8 +21,10 @@ type View = 'tilsyn' | 'toppliste' | 'butikk' | 'pass'
 export function LeagueTab() {
   const [view, setView] = useState<View>('tilsyn')
   const game = useGameState()
-  const claimable =
-    INSPECTION_TIERS.filter((t, i) => game.inspection.points >= t.points && !game.inspection.claimed.includes(i)).length
+  const average = inspectionAverage(game)
+  const claimable = inspectionQualified(game)
+    ? INSPECTION_TIERS.filter((t, i) => average >= t.score && !game.inspection.claimed.includes(i)).length
+    : 0
   const level = passLevel(game)
   const pass = game.monetization.seasonPass
   const passClaimable = SEASON_PASS_LEVELS.filter(
@@ -69,9 +71,11 @@ function InspectionPanel() {
   const ev = useShiftEvaluation(shift)
   const claimInspection = useGame((s) => s.claimInspection)
   const insp = inspectionFor(game.inspection.weekKey)
-  const points = game.inspection.points
-  const maxPoints = INSPECTION_TIERS[INSPECTION_TIERS.length - 1].points
+  const average = inspectionAverage(game)
+  const shifts = game.inspection.shifts
+  const qualified = inspectionQualified(game)
   const focusNow = insp.focus.reduce((n, id) => n + ev.coverageBySkill[id], 0) / insp.focus.length
+  const last = game.shift.last
 
   return (
     <div className="space-y-4">
@@ -97,39 +101,48 @@ function InspectionPanel() {
         </div>
 
         <div className="p-4">
-          <div className="flex items-end justify-between">
+          <div className="flex items-end justify-between gap-3">
             <div>
-              <div className="etikett">Tilsynspoeng</div>
-              <div className="font-mono text-2xl leading-none font-extrabold text-skog">{fmtInt(points)}</div>
+              <div className="etikett">Snitt per vakt</div>
+              <div className="font-mono text-3xl leading-none font-extrabold text-skog">
+                {shifts > 0 ? average.toFixed(1).replace('.', ',') : '–'}
+                <span className="text-sm font-semibold text-blekk-3"> /100</span>
+              </div>
             </div>
-            <div className="text-right">
-              <div className="etikett">Fokusdekning nå</div>
-              <div className={cx('font-mono text-lg leading-none font-extrabold', focusNow >= 0.9 ? 'text-skog' : focusNow >= 0.6 ? 'text-rav-2' : 'text-fare')}>
-                {fmtPct(focusNow)}
+            <div className="grid grid-cols-2 gap-4 text-right">
+              <div>
+                <div className="etikett">Forrige vakt</div>
+                <div className="font-mono text-lg leading-none font-extrabold">{last ? Math.round(last.inspectionScore) : '–'}</div>
+              </div>
+              <div>
+                <div className="etikett">Fokus nå</div>
+                <div className={cx('font-mono text-lg leading-none font-extrabold', focusNow >= 0.9 ? 'text-skog' : focusNow >= 0.6 ? 'text-rav-2' : 'text-fare')}>
+                  {fmtPct(focusNow)}
+                </div>
               </div>
             </div>
           </div>
 
           <div className="relative mt-4 mb-7">
-            <Meter value={Math.sqrt(points)} max={Math.sqrt(maxPoints)} color="#D97736" height={9} />
-            {INSPECTION_TIERS.map((t, i) => {
-              const pos = Math.sqrt(t.points / maxPoints) * 100
-              const reached = points >= t.points
-              return (
-                <div key={t.name} className="absolute top-[-3px] -translate-x-1/2" style={{ left: `${Math.min(97, pos)}%` }}>
-                  <div className={cx('mx-auto h-[15px] w-[15px] rounded-full border-2 border-papir', reached ? 'bg-skog' : 'bg-krem-3')} />
-                  <div className="mt-1 -translate-x-[calc(50%-7px)] text-center font-mono text-[9.5px] font-bold whitespace-nowrap text-blekk-3">
-                    {fmtCompact(t.points)}
-                  </div>
-                  <span className="sr-only">{i + 1}</span>
-                </div>
-              )
-            })}
+            <Meter value={average} max={100} color="#D97736" height={9} />
+            {INSPECTION_TIERS.map((t) => (
+              <div key={t.name} className="absolute top-[-3px] -translate-x-1/2" style={{ left: `${t.score}%` }}>
+                <div className={cx('mx-auto h-[15px] w-[15px] rounded-full border-2 border-papir', average >= t.score ? 'bg-skog' : 'bg-krem-3')} />
+                <div className="mt-1 text-center font-mono text-[9.5px] font-bold text-blekk-3">{t.score}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className={cx('mb-3 flex items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-bold', qualified ? 'bg-skog-soft text-skog' : 'bg-rav-soft/70 text-rav-2')}>
+            <Icon name={qualified ? 'hake' : 'klokke'} size={14} />
+            {qualified
+              ? `${fmtInt(shifts)} vakter vurdert denne uka – resultatet teller`
+              : `${shifts} av ${BALANCE.inspectionMinShifts} vakter før resultatet teller`}
           </div>
 
           <div className="space-y-2">
             {INSPECTION_TIERS.map((t, i) => {
-              const reached = points >= t.points
+              const reached = qualified && average >= t.score
               const claimed = game.inspection.claimed.includes(i)
               return (
                 <div key={t.name} className={cx('flex items-center gap-3 rounded-xl border px-3 py-2.5', reached ? 'border-skog/20 bg-skog-soft/50' : 'border-blekk/[0.07] bg-papir')}>
@@ -137,7 +150,9 @@ function InspectionPanel() {
                     <Icon name={reached ? 'hake' : 'las'} size={15} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[13.5px] font-extrabold">{t.name}</div>
+                    <div className="text-[13.5px] font-extrabold">
+                      {t.name} <span className="font-mono text-[11px] font-semibold text-blekk-3">snitt {t.score}+</span>
+                    </div>
                     <RewardLine reward={{ kaffekopper: t.kaffekopper }} />
                     <span className="ml-2 font-mono text-[11px] font-semibold text-blekk-3">+{t.passXp} pass-XP</span>
                   </div>
@@ -167,9 +182,9 @@ function InspectionPanel() {
             </li>
           ))}
         </ul>
-        <p className="mt-3 text-[12px] text-blekk-3">
-          Tilsynspoeng tjenes på alle vakter ut fra hvor godt fokusområdene er dekket. Samme regler for alle – kjøp gir ingen
-          fordel her.
+        <p className="mt-3 text-[12px] leading-snug text-blekk-3">
+          Hver fullførte vakt får 0–100 poeng: dekningen på fokusområdene, minus {BALANCE.inspectionAvvikPenalty} per avvik.
+          Resultatet er snittet. Flere vakter – fra tidshopp eller lengre offline-buffer – gir derfor ikke høyere resultat.
         </p>
       </div>
     </div>
@@ -250,7 +265,7 @@ function LeaderboardPanel() {
           </div>
           <div className="mt-2.5 space-y-2">
             {quality.parts.map((p) => (
-              <div key={p.id} className="grid grid-cols-[1fr_5rem_3.4rem] items-center gap-2">
+              <div key={p.id} className="grid grid-cols-[minmax(0,1fr)_4.6rem_2.6rem] items-center gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-[12px] font-bold">{p.label}</div>
                   <Meter value={p.score} max={1} color={p.score >= 0.7 ? '#1E4D40' : p.score >= 0.45 ? '#D97736' : '#B4432F'} height={5} className="mt-1" />
@@ -261,7 +276,7 @@ function LeaderboardPanel() {
             ))}
           </div>
           <p className="mt-3 text-[11.5px] text-blekk-3">
-            Bare forholdstall teller: verken tidshopp, flere senger eller dyre staber løfter indeksen. Lik konkurranse for alle.
+            Bare forholdstall teller, og 30 % handler om ressursbruk: dekning per lønnskrone og hvor mye av lagets kompetanse som faktisk treffer et behov. Tidshopp, flere senger og en dyr, overkvalifisert stab løfter ikke indeksen.
           </p>
         </div>
       )}

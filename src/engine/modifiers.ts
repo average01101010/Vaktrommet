@@ -1,7 +1,8 @@
-import { BALANCE, TIERS } from '@/data/balance'
+import { BALANCE, RARITY, TIERS } from '@/data/balance'
 import { SKILL_ORDER } from '@/data/professions'
 import { UPGRADES } from '@/data/upgrades'
-import type { GameState, ModifierDelta, Modifiers, ShiftId, SkillId, UpgradeLevels } from '@/types'
+import { WARD_TYPE_ORDER, WARD_TYPES } from '@/data/wards'
+import type { GameState, ModifierDelta, Modifiers, ShiftId, SkillId, StaffMember } from '@/types'
 
 const SHIFTS: ShiftId[] = ['dag', 'aften', 'natt']
 
@@ -20,7 +21,7 @@ export function baseModifiers(): Modifiers {
     skillMult: Object.fromEntries(SKILL_ORDER.map((s) => [s, 1])) as Record<SkillId, number>,
     extraSlots: 0,
     extraBeds: 0,
-    maxSkillLevel: 5,
+    maxSkillLevel: 0,
   }
 }
 
@@ -42,13 +43,25 @@ function applyDelta(m: Modifiers, d: ModifierDelta, level: number): void {
   if (d.skillMult) for (const s of SKILL_ORDER) m.skillMult[s] *= pow(d.skillMult[s])
 }
 
-/** Summerer alle kjøpte oppgraderinger til ett sett modifikatorer. */
-export function computeModifiers(upgrades: UpgradeLevels): Modifiers {
+export type ModifierSource = Pick<GameState, 'upgrades' | 'wardType' | 'prestige'>
+
+/**
+ * Summerer alt som påvirker motoren til ett sett modifikatorer:
+ * kjøpte oppgraderinger, avdelingstypen, fagbøker og renommé.
+ */
+export function modifiersFor(state: ModifierSource): Modifiers {
   const m = baseModifiers()
   for (const def of UPGRADES) {
-    const level = upgrades[def.id] ?? 0
+    const level = state.upgrades[def.id] ?? 0
     if (level > 0) applyDelta(m, def.perLevel, level)
   }
+  applyDelta(m, WARD_TYPES[state.wardType].mods, 1)
+  for (const id of WARD_TYPE_ORDER) {
+    const level = state.prestige.fagboker[id] ?? 0
+    if (level > 0) applyDelta(m, WARD_TYPES[id].fagbok.perLevel, level)
+  }
+  m.fagpoengMult *= 1 + state.prestige.renomme * BALANCE.renommeFagpoeng
+  m.budgetMult *= 1 + state.prestige.renomme * BALANCE.renommeBudget
   return m
 }
 
@@ -56,22 +69,33 @@ export const slotsFor = (m: Modifiers): number => Math.min(BALANCE.maxSlots, BAL
 
 export const bedsFor = (m: Modifiers): number => BALANCE.baseBeds + m.extraBeds
 
-/** Avdelingsnivå (0–5) ut fra Fagpoeng opptjent totalt. */
-export function tierFor(lifetimeFagpoeng: number): number {
+/**
+ * Egenskapstaket for en ansatt: sjeldenheten setter grunntaket, og
+ * videreutdanning (maxSkillLevel) løfter det – aldri over skillCeiling.
+ */
+export const maxSkillLevelFor = (s: Pick<StaffMember, 'rarity'>, m: Modifiers): number =>
+  Math.min(BALANCE.skillCeiling, RARITY[s.rarity].maxSkill + Math.floor(m.maxSkillLevel + 1e-9))
+
+/** Fagpoeng som kreves for et nivå. Tersklene øker for hver overleverte avdeling. */
+export const tierThreshold = (tier: number, rotations: number): number =>
+  Math.round(TIERS[tier].fagpoeng * (1 + rotations * BALANCE.tierScalePerRotation))
+
+/** Avdelingsnivå (0–5) ut fra Fagpoeng opptjent på denne avdelingen. */
+export function tierFor(lifetimeFagpoeng: number, rotations = 0): number {
   let tier = 0
-  for (let i = 0; i < TIERS.length; i++) if (lifetimeFagpoeng >= TIERS[i].fagpoeng) tier = i
+  for (let i = 0; i < TIERS.length; i++) if (lifetimeFagpoeng >= tierThreshold(i, rotations)) tier = i
   return tier
 }
 
 export function tierProgress(state: GameState): { tier: number; next: number | null; progress: number } {
   const tier = state.tier
-  const nextDef = TIERS[tier + 1]
-  if (!nextDef) return { tier, next: null, progress: 1 }
-  const from = TIERS[tier].fagpoeng
+  if (tier + 1 >= TIERS.length) return { tier, next: null, progress: 1 }
+  const from = tierThreshold(tier, state.prestige.rotations)
+  const next = tierThreshold(tier + 1, state.prestige.rotations)
   return {
     tier,
-    next: nextDef.fagpoeng,
-    progress: Math.max(0, Math.min(1, (state.lifetime.fagpoeng - from) / (nextDef.fagpoeng - from))),
+    next,
+    progress: Math.max(0, Math.min(1, (state.lifetime.fagpoeng - from) / (next - from))),
   }
 }
 

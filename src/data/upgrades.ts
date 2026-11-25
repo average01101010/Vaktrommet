@@ -204,7 +204,7 @@ export const UPGRADES: UpgradeDef[] = [
     track: 'fag',
     name: 'Videreutdanning',
     blurb: 'Fagbrev, ABC-permer og master på deltid. Kompetansen blir i huset.',
-    effectText: '+20 % erfaring, 15 % raskere kurs',
+    effectText: '+20 % erfaring, 15 % raskere kurs, +1 på egenskapstaket for hvert 2. nivå',
     maxLevel: 5,
     baseCost: 220,
     costGrowth: 3,
@@ -214,7 +214,7 @@ export const UPGRADES: UpgradeDef[] = [
       { id: 'ernaeringsrutiner', level: 1 },
     ],
     minTier: 1,
-    perLevel: { xpMult: 1.2, courseSpeedMult: 1.15 },
+    perLevel: { xpMult: 1.2, courseSpeedMult: 1.15, maxSkillLevel: 0.5 },
     pos: { col: 1, row: 2 },
   },
   {

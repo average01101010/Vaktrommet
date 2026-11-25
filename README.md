@@ -21,33 +21,53 @@ Spillet lagres i `localStorage` (`vaktrommet-save`). Slett nøkkelen for å star
 
 ```
 src/
-├─ types/       Datamodell: ansatte, turnus, oppgraderinger, dilemmaer, økonomi, GameState
+├─ types/       Datamodell: ansatte, turnus, beboere/avdelingstyper, oppgraderinger, dilemmaer, GameState
 ├─ data/        Innhold og balanse: balance.ts er eneste kilde til tall motoren bruker
+│   ├─ residents.ts    Kliniske beboerprofiler (behov per vakt og egenskap)
+│   └─ wards.ts        Avdelingstyper med beboermiks, modifikatorer og fagbok
 ├─ engine/      Ren, deterministisk spillmotor (ingen nettleser-API-er)
-│   ├─ synergy.ts      evaluateShift(): dekning, synergier og rater for én vakt
-│   ├─ simulation.ts   simulate() / catchUp(): tick, vaktskifte, offline-beregning
+│   ├─ residents.ts    Innkomst/utskrivning og computeDemand(): behov summert fra beboerne
+│   ├─ synergy.ts      evaluateShift(): dekning uten krysskompensasjon, synergier, rater
+│   ├─ simulation.ts   step / simulate / catchUp: én fast steglengde for alt
+│   ├─ migrate.ts      migrateGameState(): løfter eldre lagringer uten å nullstille
 │   ├─ scoring.ts      Driftsligaen og Kvalitetsindeksen
-│   └─ actions.ts      Alle spillerhandlinger som rene funksjoner (state → state)
-├─ store/       Zustand-store med lagring + spill-loop
+│   └─ actions.ts      Alle spillerhandlinger som rene funksjoner, inkl. avdelingsrotasjon
+├─ store/       Zustand-store med debouncet lagring + spill-loop
 ├─ services/    Supabase-klient, toppliste, kroker for betaling og rewarded video
-└─ components/  layout/ · ward/ (isometrisk canvas) · staff/ (ID-kort, turnus) · upgrades/ · league/
+└─ components/  layout/ · ward/ (isometrisk canvas, beboere, rotasjon) · staff/ · upgrades/ · league/
 supabase/migrations/   Databaseskjema (ikke kjørt automatisk)
 ```
 
 ## Slik henger spillet sammen
 
 - **Tid:** 1 sekund = 4 spillminutter. En vakt (8 t) varer 2 minutter, et døgn 6 minutter.
-- **Vaktevaluering:** Hver vakt har et faglig behov per egenskap (skalert med antall senger).
-  Ansattes egenskaper × energi × nivå gir dekning; kombinasjoner utløser synergier eller problemer.
+  Motoren går bare i faste steg på 15 spillminutter (`BALANCE.stepMin`) – i sanntid, ved
+  offline-innhenting og ved tidshopp. UI-et interpolerer klokke og tellere mellom stegene.
+- **Determinisme:** `catchUp(state, nå)` avhenger kun av tilstanden og tidspunktet, og
+  `catchUp(catchUp(s, t1), t2)` er lik `catchUp(s, t2)`. En server kan derfor regne ut nøyaktig
+  det samme som klienten. Seedet RNG ligger i `GameState`.
+- **Beboere:** Hver seng har en beboer med klinisk profil og pleietyngde. Behovet på en vakt er
+  summen av profilene. Beboere skrives ut etter liggetiden og erstattes, så behovet endrer seg.
+- **Dekning:** Hver egenskap regnes for seg og kappes på 100 % – overskudd i Stell veier ikke opp
+  for manglende Medisin. Udekket Medisin og Sår gir direkte avvik og lavere trivsel, og uten
+  sykepleier på vakt kan bare deler av Medisin-/Sår-kapasiteten brukes.
+- **Kompetanse:** Sjeldenhet setter egenskapstaket (3/4/5/5). Videreutdanning løfter det.
 - **Økonomi:** Kr (grunnbevilgning + kvalitetstilskudd − lønn) og Fagpoeng tjenes passivt.
   Kaffekopper er hard valuta.
-- **Slitasje:** Underdekning gir høy arbeidsbelastning → stress → sykmelding. Dobbeltvakter tapper energi.
-- **Offline:** `catchUp()` simulerer fraværet, begrenset til 8 timer (24 timer med Avdelingsleder Pluss).
-- **Poeng:** Driftsligaen måler volum. Kvalitetsindeksen bygger kun på forholdstall
-  (trivsel, avvik per seng, nærvær, belastning, dekning per lønnskrone), så kjøp gir ingen fordel.
+- **Offline:** Fraværet simuleres med de samme stegene, begrenset til 8 timer (24 med Pluss).
+- **Tilsyn:** Hver fullførte vakt får 0–100 poeng; ukens resultat er snittet, så flere vakter
+  (tidshopp, lengre buffer) gir ikke høyere resultat.
+- **Poeng:** Driftsligaen måler volum over hele karrieren. Kvalitetsindeksen bygger på forholdstall,
+  der 30 % er ressursbruk (dekning per lønnskrone og kompetanseutnyttelse).
+- **Endgame:** På nivå 6 kan avdelingen overleveres. Du velger ny avdelingstype, tar med renommé,
+  fagbøker, Kaffekopper og inntil tre ansatte, og bygger opp neste enhet med høyere terskler.
 
-Motoren er deterministisk (seedet RNG ligger i `GameState`), slik at en server kan kjøre
-samme kode og validere resultatet før topplistene oppdateres.
+## Lagring
+
+Spillet lagres i `localStorage`, høyst hvert femte sekund og med en gang etter spillerhandlinger
+og når fanen skjules. Ved innlasting går lagringen alltid gjennom `migrateGameState`, som fyller
+nye felter med standardverdier. Når `GameState` endrer form: øk `STATE_VERSION`, legg
+versjonsspesifikke grep i `engine/migrate.ts`, og utvid migreringstesten.
 
 ## Supabase (valgfritt)
 

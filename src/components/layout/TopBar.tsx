@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { TIERS } from '@/data/balance'
+import { WARD_TYPES } from '@/data/wards'
 import { cx, fmtCompact } from '@/lib/format'
 import { useGame } from '@/store/gameStore'
+import { useCurrentShift, useLiveMinute, useShiftEvaluation } from '@/store/selectors'
 import { Icon, type IconName } from '../ui/Icon'
 
 /** Ressurs-brikke som «popper» lett når verdien øker merkbart. */
@@ -37,9 +39,16 @@ function Resource({ icon, value, label, tone }: { icon: IconName; value: number;
 export function TopBar() {
   const wardName = useGame((s) => s.game.profile.wardName)
   const tier = useGame((s) => s.game.tier)
-  const budget = useGame((s) => Math.floor(s.game.resources.budget))
-  const fagpoeng = useGame((s) => Math.floor(s.game.resources.fagpoeng))
-  const kaffe = useGame((s) => s.game.resources.kaffekopper)
+  const wardType = useGame((s) => s.game.wardType)
+  const minute = useGame((s) => s.game.minute)
+  const resources = useGame((s) => s.game.resources)
+  const kaffe = resources.kaffekopper
+  // Motoren går i faste steg. Tellerne viser det neste steget vil gi, fordelt
+  // jevnt over stegtiden – samme rater som motoren selv bruker.
+  const ev = useShiftEvaluation(useCurrentShift())
+  const hoursIntoStep = Math.max(0, useLiveMinute(250) - minute) / 60
+  const budget = Math.floor(resources.budget + ev.rates.budgetNet * hoursIntoStep)
+  const fagpoeng = Math.floor(resources.fagpoeng + ev.rates.fagpoeng * hoursIntoStep)
 
   return (
     <header className="toppfelt sticky top-0 z-40 bg-skog pt-safe text-krem shadow-[0_6px_18px_-10px_rgb(21_58_48/0.9)]">
@@ -47,7 +56,7 @@ export function TopBar() {
         <div className="min-w-0">
           <div className="truncate text-[15px] leading-tight font-extrabold tracking-tight">{wardName}</div>
           <div className="truncate text-[10.5px] font-bold tracking-[0.1em] text-krem/65 uppercase">
-            <span className="hidden sm:inline">Nivå {tier + 1} · </span>
+            <span className="hidden sm:inline">{WARD_TYPES[wardType].name} · Nivå {tier + 1} · </span>
             {TIERS[tier].name}
           </div>
         </div>

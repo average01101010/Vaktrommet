@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { BALANCE, SHIFT_ORDER, SHIFTS } from '@/data/balance'
 import { SKILL_ORDER, SKILLS } from '@/data/professions'
+import { RESIDENT_PROFILES } from '@/data/residents'
 import { SYNERGIES } from '@/data/synergies'
 import { slotsFor } from '@/engine/modifiers'
+import { residentMix } from '@/engine/residents'
 import { isAvailable } from '@/engine/synergy'
 import { cx, fmtInt, fmtPct } from '@/lib/format'
 import { useGame } from '@/store/gameStore'
@@ -245,6 +247,7 @@ export function RosterPlanner({ onOpenStaff }: { onOpenStaff: (id: StaffId) => v
 
 /** Dekning per egenskap, rater og aktive synergier for valgt vakt. */
 function ShiftOutlook({ ev, onShowSynergies }: { ev: ShiftEvaluation; onShowSynergies: () => void }) {
+  const game = useGameState()
   const bonuses = ev.synergies.filter((s) => s.tone === 'bonus')
   const problems = ev.synergies.filter((s) => s.tone === 'malus')
   return (
@@ -268,25 +271,56 @@ function ShiftOutlook({ ev, onShowSynergies }: { ev: ShiftEvaluation; onShowSyne
       </div>
 
       <div>
-        <div className="etikett mb-1.5">Faglig dekning</div>
+        <div className="mb-1.5 flex items-end justify-between gap-2">
+          <span className="etikett">Faglig dekning mot beboernes behov</span>
+          <span className="font-mono text-[10.5px] font-semibold text-blekk-3">kapasitet/behov</span>
+        </div>
         <div className="space-y-[7px]">
           {SKILL_ORDER.filter((id) => ev.demand[id] > 0).map((id) => {
             const c = ev.coverageBySkill[id]
+            const critical = id === 'medikament' || id === 'saarstell'
+            const reduced = critical && !ev.nurseOnDuty && ev.present.length > 0
             return (
-              <div key={id} className="grid grid-cols-[4.6rem_1fr_3.6rem] items-center gap-2">
-                <span className="truncate text-[11.5px] font-semibold text-blekk-2" title={SKILLS[id].name}>
+              <div key={id} className="grid grid-cols-[4.9rem_1fr_3.9rem] items-center gap-2">
+                <span className="flex items-center gap-1 truncate text-[11.5px] font-semibold text-blekk-2" title={SKILLS[id].name}>
                   {SKILLS[id].short}
+                  {critical && (
+                    <span
+                      className={cx('h-1.5 w-1.5 shrink-0 rounded-full', c < 0.7 ? 'animate-puls bg-fare' : 'bg-blekk/25')}
+                      title="Kritisk egenskap: underdekning gir avvik og lavere trivsel"
+                    />
+                  )}
                 </span>
-                <div className="relative">
-                  <Meter value={Math.min(1, c)} max={1} color={c >= 1 ? SKILLS[id].color : c >= 0.6 ? '#D97736' : '#B4432F'} height={7} />
-                </div>
-                <span className="text-right font-mono text-[10.5px] font-semibold text-blekk-3">
-                  {ev.supply[id].toFixed(1).replace('.', ',')}/{ev.demand[id].toFixed(0)}
+                <Meter value={c} max={1} color={c >= 1 ? SKILLS[id].color : c >= 0.6 ? '#D97736' : '#B4432F'} height={7} />
+                <span className={cx('text-right font-mono text-[10.5px] font-semibold', reduced ? 'text-fare' : 'text-blekk-3')}>
+                  {ev.supply[id].toFixed(1).replace('.', ',')}/{ev.demand[id].toFixed(1).replace('.', ',')}
                 </span>
               </div>
             )
           })}
         </div>
+        {!ev.nurseOnDuty && ev.present.length > 0 && (
+          <p className="mt-2.5 flex items-start gap-2 rounded-xl bg-fare-soft px-3 py-2 text-[11.5px] leading-snug font-semibold text-fare">
+            <Icon name="avvik" size={14} className="mt-px shrink-0" />
+            <span>
+              Ingen sykepleier på vakta: bare {Math.round(ev.nurseFactor.medikament * 100)} % av Medisin-kapasiteten og{' '}
+              {Math.round(ev.nurseFactor.saarstell * 100)} % av Sår-kapasiteten kan brukes.
+            </span>
+          </p>
+        )}
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-blekk-3">
+          <span className="font-semibold">{ev.residents} beboere:</span>
+          {residentMix(game).map((m) => (
+            <span key={m.profile} className="inline-flex items-center gap-1 font-semibold">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: RESIDENT_PROFILES[m.profile].color }} />
+              {m.count} {RESIDENT_PROFILES[m.profile].short.toLowerCase()}
+            </span>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11px] leading-snug text-blekk-3">
+          Hver egenskap teller for seg – overskudd i én veier ikke opp for mangel i en annen. Kompetanseutnyttelse nå:{' '}
+          <b className="font-mono text-blekk-2">{fmtPct(ev.utilization)}</b>
+        </p>
       </div>
 
       <div>
@@ -334,7 +368,7 @@ function SynergySheet({ open, onClose, ev }: { open: boolean; onClose: () => voi
   return (
     <Sheet open={open} onClose={onClose} title={`Synergier · ${SHIFTS[ev.shift].name}`}>
       <p className="mb-3 text-[13px] text-blekk-2">
-        Riktig faglig sammensetning gir bonus på inntjening og trivsel. Feil bemanning gir stress, avvik og sykefravær.
+        Riktig faglig sammensetning gir bonus på inntjening og trivsel. Feil bemanning gir stress, avvik og sykefravær. Uten sykepleier reduseres dessuten kapasiteten i Medisin og Sår.
       </p>
       {(['bonus', 'malus'] as const).map((tone) => (
         <div key={tone} className="mb-4">

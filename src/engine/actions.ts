@@ -1,4 +1,6 @@
 import { BALANCE, INSPECTION_TIERS, RARITY, RARITY_ORDER, SHIFT_ORDER } from '@/data/balance'
+import { emptyUpgradeLevels } from '@/data/upgrades'
+import { WARD_TYPES } from '@/data/wards'
 import { DILEMMA_BY_ID } from '@/data/dilemmas'
 import { BANNERS, PASS_XP, PASS_XP_PER_LEVEL, SEASON_PASS_LEVELS, SHOP_BY_ID, softBannerCost } from '@/data/economy'
 import { UPGRADE_BY_ID, upgradeCost } from '@/data/upgrades'
@@ -18,10 +20,13 @@ import type {
   StaffMember,
   UpgradeDef,
   UpgradeId,
+  WardTypeId,
 } from '@/types'
-import { computeModifiers, slotsFor } from './modifiers'
+import { maxSkillLevelFor, modifiersFor, slotsFor } from './modifiers'
+import { syncResidents } from './residents'
+import { qualityIndex, wardDriftScore } from './scoring'
 import { rand } from './rng'
-import { cloneState, pushEvent, simulate, syncTier } from './simulation'
+import { cloneState, inspectionAverage, newAccumulator, pushEvent, simulate, syncTier } from './simulation'
 import { generateStaff } from './staffFactory'
 import { evaluateShift, isAvailable, shiftCountOf } from './synergy'
 import { MIN_PER_HOUR, realMsToGameMinutes, shiftAt } from './time'
@@ -57,7 +62,7 @@ export function applyReward(d: GameState, r: Reward): void {
 // ---------------------------------------------------------------------------
 
 export function assignStaff(state: GameState, shift: ShiftId, slot: number, staffId: StaffId): ActionResult {
-  const slots = slotsFor(computeModifiers(state.upgrades))
+  const slots = slotsFor(modifiersFor(state))
   if (slot < 0 || slot >= slots) return fail('Denne vaktplassen er ikke låst opp ennå.')
   const staff = state.staff[staffId]
   if (!staff) return fail('Fant ikke den ansatte.')
@@ -81,7 +86,7 @@ export function assignStaff(state: GameState, shift: ShiftId, slot: number, staf
 
 /** Setter den ansatte på første ledige plass på vakta. */
 export function assignToFirstFree(state: GameState, shift: ShiftId, staffId: StaffId): ActionResult {
-  const slots = slotsFor(computeModifiers(state.upgrades))
+  const slots = slotsFor(modifiersFor(state))
   const row = state.roster[shift]
   if (row.slice(0, slots).includes(staffId)) return fail('Står allerede på denne vakta.')
   const free = row.slice(0, slots).indexOf(null)
@@ -95,11 +100,10 @@ export function unassignSlot(state: GameState, shift: ShiftId, slot: number): Ac
   return { ok: true, state: d }
 }
 
-/** Fyller ledige plasser grådig med de som gir best dekning – kun folk uten annen vakt. */
-export function suggestShift(state: GameState, shift: ShiftId): ActionResult {
-  const mods = computeModifiers(state.upgrades)
+/** Fyller ledige plasser på en vakt grådig med de som gir best dekning. Muterer utkastet. */
+function fillShift(d: GameState, shift: ShiftId): number {
+  const mods = modifiersFor(d)
   const slots = slotsFor(mods)
-  const d = cloneState(state)
   let filled = 0
   for (let slot = 0; slot < slots; slot++) {
     if (d.roster[shift][slot]) continue
@@ -110,13 +114,22 @@ export function suggestShift(state: GameState, shift: ShiftId): ActionResult {
       d.roster[shift][slot] = id
       const ev = evaluateShift(d, shift, mods)
       const bonus = ev.synergies.reduce((n, syn) => n + (syn.tone === 'bonus' ? 0.04 : -0.06), 0)
-      const score = ev.coverage + bonus
+      // Lønn teller svakt mot, så forslaget ikke fyller på med folk som ikke trengs.
+      const score = ev.coverage + bonus - ev.rates.wages / 100_000
       if (!best || score > best.score) best = { id, score }
     }
     d.roster[shift][slot] = best ? best.id : null
     if (best) filled++
   }
-  if (filled === 0) return fail('Ingen ledige ansatte uten vakt. Rekrutter flere, eller sett noen på dobbeltvakt.')
+  return filled
+}
+
+/** Fyller ledige plasser med de som gir best dekning – kun folk uten annen vakt. */
+export function suggestShift(state: GameState, shift: ShiftId): ActionResult {
+  const d = cloneState(state)
+  if (fillShift(d, shift) === 0) {
+    return fail('Ingen ledige ansatte uten vakt. Rekrutter flere, eller sett noen på dobbeltvakt.')
+  }
   return { ok: true, state: d }
 }
 
@@ -187,6 +200,9 @@ export function buyUpgrade(state: GameState, id: UpgradeId): ActionResult {
   const d = cloneState(state)
   d.resources[def.currency] -= st.cost
   d.upgrades[id] = st.level + 1
+  // Nye senger tas i bruk med en gang.
+  const admitted = syncResidents(d, modifiersFor(d)).admitted
+  if (admitted.length > 0) pushEvent(d, 'beboer', `${admitted.length} nye beboere har flyttet inn i den nye fløyen.`)
   return { ok: true, state: d }
 }
 
@@ -196,7 +212,7 @@ export function buyUpgrade(state: GameState, id: UpgradeId): ActionResult {
 
 export function meetsRequirement(state: GameState, req: Requirement | undefined): boolean {
   if (!req) return true
-  const ev = evaluateShift(state, shiftAt(state.minute), computeModifiers(state.upgrades))
+  const ev = evaluateShift(state, shiftAt(state.minute), modifiersFor(state))
   const present = ev.present.map((id) => state.staff[id])
   if (req.profession && !present.some((s) => s.profession === req.profession)) return false
   if (req.skill && !present.some((s) => s.skills[req.skill!.id] >= req.skill!.min)) return false
@@ -237,7 +253,7 @@ export function resolveDilemma(
   if (e.trivsel) d.ward.trivsel = Math.max(0, Math.min(100, d.ward.trivsel + e.trivsel))
   if (e.avvik) d.ward.avvik = Math.max(0, d.ward.avvik + e.avvik)
   if (e.stress || e.energy) {
-    const ev = evaluateShift(d, shiftAt(d.minute), computeModifiers(d.upgrades))
+    const ev = evaluateShift(d, shiftAt(d.minute), modifiersFor(d))
     const targets = e.scope === 'paaVakt' ? ev.present : d.staffOrder
     for (const id of targets) {
       const s = d.staff[id]
@@ -274,9 +290,13 @@ export function startCourse(state: GameState, staffId: StaffId, skill: SkillId):
   if (!s) return fail('Fant ikke den ansatte.')
   if (s.sickUntil !== null) return fail(`${s.name.split(' ')[0]} er sykmeldt.`)
   if (s.course) return fail(`${s.name.split(' ')[0]} er allerede på kurs.`)
-  const mods = computeModifiers(state.upgrades)
+  const mods = modifiersFor(state)
   const level = s.skills[skill]
-  if (level >= mods.maxSkillLevel) return fail('Egenskapen er allerede på topp.')
+  const cap = maxSkillLevelFor(s, mods)
+  if (level >= BALANCE.skillCeiling) return fail('Egenskapen er allerede på topp.')
+  if (level >= cap) {
+    return fail(`${RARITY[s.rarity].name} ansatte kan nå nivå ${cap}. Videreutdanning (Utstyr & Fag) løfter taket.`)
+  }
   const cost = courseCost(level)
   if (state.resources.fagpoeng < cost) return fail('Ikke nok Fagpoeng.')
   const d = cloneState(state)
@@ -298,7 +318,7 @@ export function skipCourse(state: GameState, staffId: StaffId): ActionResult {
   const d = cloneState(state)
   const ds = d.staff[staffId]
   d.resources.kaffekopper -= cost
-  ds.skills[ds.course!.skill] = Math.min(computeModifiers(d.upgrades).maxSkillLevel, ds.skills[ds.course!.skill] + 1)
+  ds.skills[ds.course!.skill] = Math.min(maxSkillLevelFor(ds, modifiersFor(d)), ds.skills[ds.course!.skill] + 1)
   ds.course = null
   pushEvent(d, 'kurs', `${ds.name} fullførte hurtigkurs.`)
   return { ok: true, state: d }
@@ -407,7 +427,7 @@ export function timeSkip(state: GameState, itemId: string): ActionResult<{ gaine
   const item = SHOP_BY_ID[itemId]
   if (!item || item.kind !== 'tidshopp' || !item.hours || !item.priceKaffe) return fail('Ukjent tidshopp.')
   if (state.resources.kaffekopper < item.priceKaffe) return fail('Ikke nok Kaffekopper.')
-  const { state: d, totals } = simulate(state, realMsToGameMinutes(item.hours * 3_600_000), true)
+  const { state: d, totals } = simulate(state, realMsToGameMinutes(item.hours * 3_600_000))
   d.resources.kaffekopper -= item.priceKaffe
   return { ok: true, state: d, gained: { fagpoeng: totals.fagpoeng, budget: totals.budget } }
 }
@@ -450,10 +470,17 @@ export function claimPassReward(state: GameState, level: number, track: 'free' |
   return { ok: true, state: d, reward: def[track] }
 }
 
+/** Har uka nok fullførte vakter til at resultatet teller? */
+export const inspectionQualified = (state: GameState): boolean =>
+  state.inspection.shifts >= BALANCE.inspectionMinShifts
+
 export function claimInspectionTier(state: GameState, index: number): ActionResult<{ reward: Reward }> {
   const tier = INSPECTION_TIERS[index]
   if (!tier) return fail('Ukjent terskel.')
-  if (state.inspection.points < tier.points) return fail('Terskelen er ikke nådd ennå.')
+  if (!inspectionQualified(state)) {
+    return fail(`Tilsynet trenger ${BALANCE.inspectionMinShifts} fullførte vakter før resultatet teller.`)
+  }
+  if (inspectionAverage(state) < tier.score) return fail('Snittet er ikke høyt nok ennå.')
   if (state.inspection.claimed.includes(index)) return fail('Allerede hentet.')
   const d = cloneState(state)
   d.inspection.claimed.push(index)
@@ -485,5 +512,123 @@ export function markShiftReportSeen(state: GameState): ActionResult {
 export function setProfile(state: GameState, profile: Partial<PlayerProfile>): ActionResult {
   const d = cloneState(state)
   d.profile = { ...d.profile, ...profile }
+  return { ok: true, state: d }
+}
+
+// ---------------------------------------------------------------------------
+// Avdelingsrotasjon (endgame)
+// ---------------------------------------------------------------------------
+
+export const canRotate = (state: GameState): boolean => state.tier >= BALANCE.rotationUnlockTier
+
+export interface RotationPreview {
+  renommeGain: number
+  /** Fagboka du får for avdelingen du overleverer, og nivået den havner på. */
+  fagbok: { wardType: WardTypeId; name: string; level: number; maxed: boolean }
+  bankedDrift: number
+  quality: number
+}
+
+/** Hva en overlevering gir akkurat nå. */
+export function rotationPreview(state: GameState): RotationPreview {
+  const quality = qualityIndex(state).index
+  const current = state.prestige.fagboker[state.wardType] ?? 0
+  return {
+    renommeGain: BALANCE.renommeBase + Math.floor(quality / BALANCE.renommePerQuality),
+    fagbok: {
+      wardType: state.wardType,
+      name: WARD_TYPES[state.wardType].fagbok.name,
+      level: Math.min(BALANCE.fagbokMaxLevel, current + 1),
+      maxed: current >= BALANCE.fagbokMaxLevel,
+    },
+    bankedDrift: wardDriftScore(state),
+    quality,
+  }
+}
+
+export interface RotationChoice {
+  wardType: WardTypeId
+  /** Inntil tre nøkkelansatte som blir med videre. */
+  keepStaff: StaffId[]
+  wardName?: string
+}
+
+/**
+ * Overleverer avdelingen og starter et nytt oppdrag. Renommé, fagbøker,
+ * Kaffekopper, kjøp og inntil tre nøkkelansatte blir med; budsjett, Fagpoeng,
+ * oppgraderinger, nivå og resten av staben starter på nytt.
+ */
+export function rotateWard(state: GameState, choice: RotationChoice): ActionResult {
+  if (!canRotate(state)) return fail('Avdelingen må være Kompetansesenter før den kan overleveres.')
+  const ward = WARD_TYPES[choice.wardType]
+  if (!ward || !ward.selectable) return fail('Ukjent avdelingstype.')
+  const keep = [...new Set(choice.keepStaff)]
+  if (keep.length > BALANCE.rotationKeepStaff) return fail(`Du kan ta med inntil ${BALANCE.rotationKeepStaff} ansatte.`)
+  if (keep.some((id) => !state.staff[id])) return fail('Fant ikke alle de valgte ansatte.')
+
+  const preview = rotationPreview(state)
+  const d = cloneState(state)
+
+  // ---- Det du tar med deg ----
+  d.prestige.rotations++
+  d.prestige.renomme += preview.renommeGain
+  d.prestige.fagboker[state.wardType] = preview.fagbok.level
+  d.prestige.bankedDrift += preview.bankedDrift
+  d.prestige.history.push({
+    wardType: state.wardType,
+    wardName: state.profile.wardName,
+    drift: preview.bankedDrift,
+    quality: preview.quality,
+    minute: state.minute,
+  })
+  d.resources.kaffekopper += BALANCE.rotationKaffekopper
+
+  // ---- Ny avdeling ----
+  d.wardType = choice.wardType
+  const name = choice.wardName?.trim()
+  if (name) d.profile.wardName = name.slice(0, 28)
+  d.resources.budget = BALANCE.start.budget
+  d.resources.fagpoeng = BALANCE.start.fagpoeng
+  d.lifetime = { budget: 0, fagpoeng: 0, shiftsCompleted: 0, dilemmasResolved: 0, sickDays: 0, recruits: 0 }
+  d.ward.trivsel = BALANCE.start.trivsel
+  d.ward.avvik = 0
+  d.ward.avvikProgress = 0
+  d.upgrades = emptyUpgradeLevels()
+  d.tier = 0
+  d.quality = { trivsel: BALANCE.start.trivsel, avvikPerBedDay: 0.25, absence: 0, stress: 30, efficiency: 0.6, competence: 0.6, hours: 0 }
+  d.shift.current = newAccumulator(d.minute)
+  d.shift.last = null
+  d.dilemmas.active = []
+  d.dilemmas.nextAt = d.minute + 4 * MIN_PER_HOUR
+  d.monetization.rosterTemplates = []
+  d.monetization.gacha.lastPull = null
+
+  // ---- Stab: nøkkelansatte + nye kolleger som allerede jobber der ----
+  const staff: Record<StaffId, StaffMember> = {}
+  for (const id of keep) {
+    const s = d.staff[id]
+    s.energy = s.stamina
+    s.stress = 15
+    s.sickUntil = null
+    s.course = null
+    staff[id] = s
+  }
+  d.staff = staff
+  d.staffOrder = keep
+  while (d.staffOrder.length < BALANCE.rotationStaffCount) {
+    d.monetization.gacha.totalPulls++
+    const s = generateStaff(d, { id: `n${d.monetization.gacha.totalPulls}`, rarity: 'vanlig', hiredAt: d.minute })
+    d.staff[s.id] = s
+    d.staffOrder.push(s.id)
+  }
+  for (const shift of SHIFT_ORDER) d.roster[shift] = Array.from({ length: BALANCE.maxSlots }, () => null)
+
+  // ---- Beboere etter den nye avdelingens profil, og et første turnusforslag ----
+  d.residents = []
+  syncResidents(d, modifiersFor(d), true)
+  for (const shift of SHIFT_ORDER) fillShift(d, shift)
+
+  d.events = []
+  pushEvent(d, 'avdeling', `Nytt oppdrag: ${ward.name}. +${preview.renommeGain} renommé, fagbok «${preview.fagbok.name}».`)
   return { ok: true, state: d }
 }

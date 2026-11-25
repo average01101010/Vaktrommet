@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
-import { BALANCE } from '@/data/balance'
-import { minuteOfDay } from '@/engine/time'
+import { liveMinute, minuteOfDay } from '@/engine/time'
 import type { UpgradeLevels } from '@/types'
 import { Crew, type AgentInput } from './scene/agents'
 import { drawScene, type LightLayer } from './scene/draw'
 import { makeView, type View } from './scene/iso'
 
 export interface WardSceneProps {
-  /** Spillminutt (absolutt). */
+  /** Motorens spillminutt og tidspunktet for siste steg – scenen interpolerer selv. */
   minute: number
+  lastTickAt: number
   upgrades: UpgradeLevels
   postIts: number
   trivsel: number
@@ -59,7 +59,6 @@ export function WardScene(props: WardSceneProps) {
     let raf = 0
     let last = performance.now()
     let time = 0
-    let shownMinute = latest.current.minute
     let crewKey = ''
     let first = true
     let visible = true
@@ -72,11 +71,8 @@ export function WardScene(props: WardSceneProps) {
       time += dt
 
       const p = latest.current
-      // Klokka i scenen glir jevnt mellom motorens sekund-tick.
-      const target = p.minute
-      shownMinute += dt * BALANCE.gameMinutesPerRealSecond
-      if (Math.abs(target - shownMinute) > 30) shownMinute = target
-      else shownMinute += (target - shownMinute) * Math.min(1, dt * 1.5)
+      // Motoren går i faste steg; lys og veggklokke glir jevnt mellom dem.
+      const shownMinute = liveMinute(p, Date.now())
 
       const opts = { tralle: (p.upgrades.medisintralle ?? 0) >= 1, door3: (p.upgrades.nyfloy ?? 0) >= 1 }
       const key = p.crew.map((c) => c.id).join(',') + `|${opts.tralle}|${opts.door3}`

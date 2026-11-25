@@ -41,6 +41,10 @@ export interface Modifiers {
   skillMult: Record<SkillId, number>
   extraSlots: number
   extraBeds: number
+  /**
+   * Ekstra nivåer på egenskapstaket. Taket for en ansatt er sjeldenhetens tak
+   * + floor(maxSkillLevel), se maxSkillLevelFor() i engine/modifiers.
+   */
   maxSkillLevel: number
 }
 

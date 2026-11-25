@@ -17,14 +17,25 @@ const RARITY_STYLE: Record<Rarity, { ring: string; label: string; stars: number;
 export const topSkills = (s: StaffMember, n = 3): SkillId[] =>
   [...SKILL_ORDER].filter((id) => s.skills[id] > 0).sort((a, b) => s.skills[b] - s.skills[a]).slice(0, n)
 
-export function SkillPips({ level, color, max = 5 }: { level: number; color: string; max?: number }) {
+export function SkillPips({
+  level,
+  color,
+  max = 5,
+  cap = max,
+}: {
+  level: number
+  color: string
+  max?: number
+  /** Egenskapstaket for den ansatte – nivåer over taket vises som låst. */
+  cap?: number
+}) {
   return (
-    <span className="inline-flex gap-[2px]" aria-label={`Nivå ${level} av ${max}`}>
+    <span className="inline-flex gap-[2px]" aria-label={`Nivå ${level} av ${cap}`}>
       {Array.from({ length: max }, (_, i) => (
         <span
           key={i}
-          className="h-[7px] w-[7px] rounded-[2px]"
-          style={{ background: i < level ? color : 'rgb(28 37 38 / 0.1)' }}
+          className={cx('h-[7px] w-[7px] rounded-[2px]', i >= cap && i >= level && 'border border-dashed border-blekk/25')}
+          style={{ background: i < level ? color : i >= cap ? 'transparent' : 'rgb(28 37 38 / 0.1)' }}
         />
       ))}
     </span>
