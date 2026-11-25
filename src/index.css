@@ -1,0 +1,264 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/plus-jakarta-sans';
+@import '@fontsource-variable/jetbrains-mono';
+@import '@fontsource-variable/caveat';
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* Nordisk palett */
+  --color-krem: #f7f5f0;
+  --color-krem-2: #efebe2;
+  --color-krem-3: #e2dccf;
+  --color-papir: #fffdf8;
+  --color-skog: #1e4d40;
+  --color-skog-2: #2a6453;
+  --color-skog-3: #153a30;
+  --color-skog-soft: #d9e7e0;
+  --color-petrol: #2b5b6c;
+  --color-petrol-soft: #d8e5ea;
+  --color-rav: #d97736;
+  --color-rav-2: #bf6227;
+  --color-rav-soft: #f7e3d1;
+  --color-blekk: #1c2526;
+  --color-blekk-2: #4a5557;
+  --color-blekk-3: #7d8788;
+  --color-fare: #b4432f;
+  --color-fare-soft: #f6ddd6;
+  --color-kork: #c79a68;
+
+  --shadow-kort: 0 1px 0 rgb(255 255 255 / 0.7) inset, 0 1px 2px rgb(28 37 38 / 0.06), 0 6px 16px -8px rgb(28 37 38 / 0.18);
+  --shadow-loft: 0 2px 4px rgb(28 37 38 / 0.08), 0 18px 36px -14px rgb(28 37 38 / 0.35);
+
+  --animate-inn: inn 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-opp: opp 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-pop: pop 0.4s cubic-bezier(0.3, 1.4, 0.5, 1) both;
+  --animate-sving: sving 5s ease-in-out infinite;
+  --animate-puls: puls 2.2s ease-in-out infinite;
+  --animate-glans: glans 3.5s ease-in-out infinite;
+
+  @keyframes inn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes opp {
+    from { transform: translateY(100%); }
+    to { transform: none; }
+  }
+  @keyframes pop {
+    from { opacity: 0; transform: scale(0.85) rotate(var(--tilt, 0deg)); }
+    to { opacity: 1; transform: scale(1) rotate(var(--tilt, 0deg)); }
+  }
+  @keyframes sving {
+    0%, 100% { transform: rotate(-1.2deg); }
+    50% { transform: rotate(1.2deg); }
+  }
+  @keyframes puls {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  @keyframes glans {
+    0%, 60% { transform: translateX(-130%) skewX(-18deg); }
+    100% { transform: translateX(230%) skewX(-18deg); }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    margin: 0;
+    background: var(--color-krem);
+    color: var(--color-blekk);
+    font-family: var(--font-sans);
+    font-feature-settings: 'ss01', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+  }
+  button {
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-rav);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* ---------- Flater ---------- */
+  .kort {
+    background: var(--color-papir);
+    border: 1px solid rgb(28 37 38 / 0.07);
+    border-radius: 1.1rem;
+    box-shadow: var(--shadow-kort);
+  }
+  .etikett {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--color-blekk-3);
+  }
+
+  /* ---------- Laminert ID-kort ---------- */
+  .laminat {
+    position: relative;
+    border-radius: 0.9rem;
+    background: linear-gradient(160deg, #fffefb 0%, #f8f4ea 100%);
+    border: 1px solid rgb(28 37 38 / 0.1);
+    box-shadow:
+      0 0 0 3px rgb(255 255 255 / 0.55),
+      0 0 0 4px rgb(28 37 38 / 0.07),
+      0 10px 18px -10px rgb(28 37 38 / 0.4);
+    overflow: hidden;
+    isolation: isolate;
+  }
+  /* Plastglans over hele kortet */
+  .laminat::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    pointer-events: none;
+    border-radius: inherit;
+    background:
+      linear-gradient(118deg, rgb(255 255 255 / 0.5) 0%, rgb(255 255 255 / 0) 22%, rgb(255 255 255 / 0) 62%, rgb(255 255 255 / 0.22) 78%, rgb(255 255 255 / 0) 90%),
+      linear-gradient(180deg, rgb(255 255 255 / 0.25), rgb(255 255 255 / 0) 30%);
+    mix-blend-mode: soft-light;
+  }
+  .laminat-foil::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 40%;
+    z-index: 6;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+    animation: var(--animate-glans);
+  }
+  .nokkelband {
+    background-image: repeating-linear-gradient(180deg, rgb(255 255 255 / 0.14) 0 2px, transparent 2px 6px);
+  }
+
+  /* ---------- Korktavle og Post-it ---------- */
+  .korktavle {
+    background-color: var(--color-kork);
+    background-image:
+      radial-gradient(rgb(92 58 26 / 0.28) 1px, transparent 1.4px),
+      radial-gradient(rgb(255 236 205 / 0.3) 1px, transparent 1.6px),
+      radial-gradient(rgb(92 58 26 / 0.16) 1.5px, transparent 2px);
+    background-size: 13px 13px, 17px 17px, 29px 29px;
+    background-position: 0 0, 6px 9px, 11px 3px;
+    border: 7px solid #8a6238;
+    border-radius: 0.9rem;
+    box-shadow:
+      inset 0 2px 8px rgb(60 36 14 / 0.4),
+      0 1px 0 rgb(255 255 255 / 0.6),
+      0 10px 20px -12px rgb(28 37 38 / 0.5);
+  }
+  .postit {
+    position: relative;
+    background-image:
+      linear-gradient(180deg, rgb(0 0 0 / 0.06), transparent 14%),
+      repeating-linear-gradient(0deg, rgb(255 255 255 / 0.1) 0 1px, transparent 1px 3px),
+      linear-gradient(135deg, transparent 0%, rgb(0 0 0 / 0.045) 100%);
+    box-shadow:
+      0 1px 1px rgb(28 37 38 / 0.15),
+      0 10px 14px -8px rgb(28 37 38 / 0.45);
+    border-bottom-right-radius: 14px 5px;
+  }
+  .postit-gul { background-color: #fbe38a; }
+  .postit-rosa { background-color: #f9bfcc; }
+  .postit-mint { background-color: #c3e6cb; }
+  .postit-bla { background-color: #bfe0ee; }
+  .knappenal {
+    width: 13px;
+    height: 13px;
+    border-radius: 999px;
+    background: radial-gradient(circle at 35% 30%, #ff9c7a, #c0392b 60%, #7d1f14);
+    box-shadow: 0 3px 3px rgb(28 37 38 / 0.35);
+  }
+
+  /* ---------- Knapper ---------- */
+  .knapp {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    border-radius: 0.8rem;
+    padding: 0.6rem 0.95rem;
+    font-weight: 700;
+    font-size: 0.875rem;
+    line-height: 1.1;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.15s ease, opacity 0.15s ease;
+    user-select: none;
+  }
+  .knapp:active:not(:disabled) {
+    transform: translateY(1px) scale(0.985);
+  }
+  .knapp:disabled {
+    opacity: 0.45;
+  }
+  .knapp-primar {
+    background: var(--color-skog);
+    color: var(--color-krem);
+    box-shadow: 0 1px 0 rgb(255 255 255 / 0.18) inset, 0 3px 0 var(--color-skog-3), 0 8px 14px -8px rgb(30 77 64 / 0.7);
+  }
+  .knapp-rav {
+    background: var(--color-rav);
+    color: #fff;
+    box-shadow: 0 1px 0 rgb(255 255 255 / 0.25) inset, 0 3px 0 var(--color-rav-2), 0 8px 14px -8px rgb(217 119 54 / 0.8);
+  }
+  .knapp-lys {
+    background: var(--color-papir);
+    color: var(--color-blekk);
+    border: 1px solid rgb(28 37 38 / 0.12);
+    box-shadow: 0 2px 0 rgb(28 37 38 / 0.08);
+  }
+  .knapp-flat {
+    background: rgb(28 37 38 / 0.06);
+    color: var(--color-blekk);
+  }
+}
+
+@utility hand {
+  font-family: 'Caveat Variable', 'Bradley Hand', 'Segoe Print', cursive;
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

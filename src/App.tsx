@@ -1,0 +1,60 @@
+import { useState } from 'react'
+import { BottomNav, type TabId } from '@/components/layout/BottomNav'
+import { AdOverlay, OfflineReportSheet, Onboarding, Toasts } from '@/components/layout/Overlays'
+import { TopBar } from '@/components/layout/TopBar'
+import { LeagueTab } from '@/components/league/LeagueTab'
+import { StaffTab } from '@/components/staff/StaffTab'
+import { UpgradesTab } from '@/components/upgrades/UpgradesTab'
+import { WardTab } from '@/components/ward/WardTab'
+import { INSPECTION_TIERS } from '@/data/balance'
+import { UPGRADES } from '@/data/upgrades'
+import { upgradeStatus } from '@/engine/actions'
+import { useGame } from '@/store/gameStore'
+import { useGameLoop } from '@/store/useGameLoop'
+
+export default function App() {
+  useGameLoop()
+  const [tab, setTab] = useState<TabId>('avdelingen')
+  const game = useGame((s) => s.game)
+
+  // Små varsler i bunnmenyen: ting som venter på spilleren.
+  const sick = game.staffOrder.filter((id) => game.staff[id].sickUntil !== null).length
+  const affordable = UPGRADES.filter((u) => {
+    const st = upgradeStatus(game, u)
+    return !st.locked && !st.maxed && st.affordable
+  }).length
+  const inspection = INSPECTION_TIERS.filter(
+    (t, i) => game.inspection.points >= t.points && !game.inspection.claimed.includes(i),
+  ).length
+
+  return (
+    <div className="min-h-dvh overflow-x-clip">
+      <TopBar />
+      <main className="mx-auto max-w-6xl px-3.5 pt-4 pb-28 sm:px-5">
+        <div key={tab} className="animate-inn">
+          {tab === 'avdelingen' && <WardTab onGoToRoster={() => setTab('turnus')} />}
+          {tab === 'turnus' && <StaffTab />}
+          {tab === 'utstyr' && <UpgradesTab />}
+          {tab === 'tilsyn' && <LeagueTab />}
+        </div>
+      </main>
+      <BottomNav
+        active={tab}
+        onChange={(t) => {
+          setTab(t)
+          window.scrollTo({ top: 0 })
+        }}
+        badges={{
+          avdelingen: game.dilemmas.active.length,
+          turnus: sick,
+          utstyr: affordable,
+          tilsyn: inspection,
+        }}
+      />
+      <Onboarding />
+      <OfflineReportSheet />
+      <AdOverlay />
+      <Toasts />
+    </div>
+  )
+}
