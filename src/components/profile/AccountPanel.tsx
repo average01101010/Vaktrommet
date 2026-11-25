@@ -169,19 +169,21 @@ function BackupCard({ onDone }: { onDone: () => void }) {
           <p className="mt-0.5 text-[12px] leading-snug text-blekk-2">
             Ta en kopi før du bytter enhet, eller send den med når du melder en feil.
           </p>
-          <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className={cx('mt-2 grid gap-2', __CAN_DOWNLOAD__ && 'grid-cols-2')}>
             <button className="knapp knapp-primar" onClick={() => void copy()}>
               <Icon name="kopier" size={15} /> Kopier
             </button>
-            <button
-              className="knapp knapp-lys"
-              onClick={() => {
-                downloadText(filename, exportSave())
-                toast('Nedlastingen er startet. Skjer det ingenting, bruk «Kopier».', 'info')
-              }}
-            >
-              <Icon name="nedlast" size={15} /> Last ned fil
-            </button>
+            {__CAN_DOWNLOAD__ && (
+              <button
+                className="knapp knapp-lys"
+                onClick={() => {
+                  downloadText(filename, exportSave())
+                  toast('Nedlastingen er startet. Skjer det ingenting, bruk «Kopier».', 'info')
+                }}
+              >
+                <Icon name="nedlast" size={15} /> Last ned fil
+              </button>
+            )}
           </div>
           {showExport !== null && (
             <div className="mt-2 animate-inn">

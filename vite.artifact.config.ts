@@ -11,7 +11,8 @@ import tailwindcss from '@tailwindcss/vite'
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
 
 export default defineConfig({
-  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
+  // Den innebygde visningen blokkerer nedlastinger, så fil-knappen skjules der.
+  define: { __APP_VERSION__: JSON.stringify(pkg.version), __CAN_DOWNLOAD__: 'false' },
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   build: {
