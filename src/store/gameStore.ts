@@ -72,6 +72,31 @@ interface GameStore {
 
 let toastId = 0
 
+/** localStorage kan være blokkert eller full – spillet skal kjøre uansett. */
+const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key)
+    } catch {
+      return null
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value)
+    } catch {
+      // Ingen lagring tilgjengelig: fortsett uten.
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      localStorage.removeItem(key)
+    } catch {
+      // Se over.
+    }
+  },
+}
+
 export const useGame = create<GameStore>()(
   persist(
     (set, get) => {
@@ -184,7 +209,7 @@ export const useGame = create<GameStore>()(
     {
       name: 'vaktrommet-save',
       version: STATE_VERSION,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => safeStorage),
       partialize: (s) => ({ game: s.game }),
       // Ukjent/eldre lagringsformat: start på nytt framfor å krasje.
       migrate: (persisted, version) =>

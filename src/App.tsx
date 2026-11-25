@@ -30,7 +30,7 @@ export default function App() {
   return (
     <div className="min-h-dvh overflow-x-clip">
       <TopBar />
-      <main className="mx-auto max-w-6xl px-3.5 pt-4 pb-28 sm:px-5">
+      <main className="mx-auto max-w-6xl pr-[max(1rem,env(safe-area-inset-right,0px))] pl-[max(1rem,env(safe-area-inset-left,0px))] pt-4 pb-28 sm:px-5">
         <div key={tab} className="animate-inn">
           {tab === 'avdelingen' && <WardTab onGoToRoster={() => setTab('turnus')} />}
           {tab === 'turnus' && <StaffTab />}

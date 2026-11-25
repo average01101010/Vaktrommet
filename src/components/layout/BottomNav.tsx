@@ -21,7 +21,7 @@ export function BottomNav({
 }) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-blekk/10 bg-papir/95 pb-safe backdrop-blur-md" aria-label="Hovedmeny">
-      <div className="mx-auto grid max-w-xl grid-cols-4 px-1.5">
+      <div className="mx-auto grid max-w-xl grid-cols-4 pr-[max(0.375rem,env(safe-area-inset-right,0px))] pl-[max(0.375rem,env(safe-area-inset-left,0px))]">
         {TABS.map((t) => {
           const on = t.id === active
           const badge = badges[t.id] ?? 0
