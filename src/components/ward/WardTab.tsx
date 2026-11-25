@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { BALANCE, SHIFTS, TIERS } from '@/data/balance'
 import { WARD_TYPE_ORDER, WARD_TYPES } from '@/data/wards'
 import { canRotate } from '@/engine/actions'
+import { DILEMMA_BY_ID } from '@/data/dilemmas'
 import { SYNERGY_BY_ID } from '@/data/synergies'
 import { tierProgress } from '@/engine/modifiers'
 import { dayNumber, formatClock, minutesLeftInShift, gameMinutesToRealMs, shiftProgress } from '@/engine/time'
@@ -16,6 +17,7 @@ import { MorgenkaffeCard, RivalCard, ThanksPanel } from './Retention'
 import { ResidentsPanel } from './ResidentsPanel'
 import { RotationSheet } from './RotationSheet'
 import type { AgentInput } from './scene/agents'
+import type { SceneNote } from './scene/layout'
 import { WardScene } from './WardScene'
 
 const SHIFT_ICON: Record<ShiftId, IconName> = { dag: 'sol', aften: 'kveld', natt: 'mane' }
@@ -49,6 +51,16 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
     [ev.present, game.staff],
   )
 
+  // Lappene på korktavla i rommet har samme farge som i grensesnittet.
+  const notes: SceneNote[] = useMemo(
+    () =>
+      game.dilemmas.active.map((a) => ({
+        color: DILEMMA_BY_ID[a.defId]?.color ?? 'gul',
+        followUp: Boolean(a.followUpOf),
+      })),
+    [game.dilemmas.active],
+  )
+
   const avgStress = ev.present.length
     ? ev.present.reduce((n, id) => n + game.staff[id].stress, 0) / ev.present.length
     : 0
@@ -73,8 +85,13 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
             minute={game.minute}
             lastTickAt={game.lastTickAt}
             upgrades={game.upgrades}
-            postIts={game.dilemmas.active.length}
+            wardType={game.wardType}
+            beds={ev.beds}
             trivsel={game.ward.trivsel}
+            coverage={ev.coverage}
+            avgStress={avgStress}
+            thanksActive={ev.thanksBoost}
+            notes={notes}
             crew={crew}
           />
           <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-2.5 sm:p-3">

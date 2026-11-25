@@ -63,6 +63,20 @@ supabase/migrations/   Databaseskjema (ikke kjørt automatisk)
 - **Endgame:** På nivå 6 kan avdelingen overleveres. Du velger ny avdelingstype, tar med renommé,
   fagbøker, Kaffekopper og inntil tre ansatte, og bygger opp neste enhet med høyere terskler.
 
+## Avdelingsvisningen
+
+Scenen i `src/components/ward/scene/` er et rent 2D-canvas som speiler spilltilstanden:
+
+- **Døgnrytme:** På natt er lenestolen tom, og pleierne patruljerer mellom dørene og sitter én om gangen
+  ved PC-en. De siste 20 spillminuttene av en vakt, og de første 20 av den neste, samles begge vaktlag
+  rundt rapportbordet.
+- **Tempo:** Dekning og stress gir et «hastverk» fra 0 til 1 som styrer ganghastighet og holdning. Når
+  avdelingen er presset, blinker varsellamper over pasientdørene til nærmeste pleier har vært der.
+- **Rekvisitter:** Aktive dilemmaer henger som fargede lapper på korktavla, et aktivt takkekort gir
+  blomster og konfekt på bordet, og Stille rapport bytter papirbunkene med nettbrett.
+- **Progresjon:** Antall dører følger sengetallet (`doorCountFor` i `scene/layout.ts`), og hver
+  avdelingstype har eget interiør og egen palett (`WARD_LOOKS`).
+
 ## Balanse og gjenbesøk
 
 - **Belønninger som skalerer:** Kr og Fagpoeng i Tilsynspasset og Morgenkaffe er oppgitt i spilltimer

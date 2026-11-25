@@ -38,6 +38,8 @@ export interface Pose {
   time: number
   alpha: number
   tired: boolean
+  /** 0–1: hvor travelt figuren har det. Gir foroverlent holdning og fartsstreker. */
+  hurry?: number
 }
 
 /** Tegner en stilisert figur. Alt er enkle former – ingen rigg, bare litt sprett. */
@@ -58,8 +60,23 @@ export function drawFigure(ctx: CanvasRenderingContext2D, v: View, st: FigureSty
   ctx.fill()
 
   ctx.scale(p.flip, 1)
-  const lean = p.tired ? 1.5 * s : 0
+  const hurry = p.walking ? (p.hurry ?? 0) : 0
+  const lean = p.tired ? 1.5 * s : hurry * 2.6 * s
   ctx.translate(lean, sit)
+
+  // Fartsstreker bak den som har det travelt
+  if (hurry > 0.55 && !p.sitting) {
+    ctx.strokeStyle = `rgba(28,37,38,${0.22 * hurry})`
+    ctx.lineWidth = 1.1 * s
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    for (const [y, len] of [[-24, 7], [-18, 10], [-12, 6]] as const) {
+      const wobble = Math.sin(p.phase * 2 + y) * 1.2 * s
+      ctx.moveTo(-13 * s + wobble, y * s)
+      ctx.lineTo((-13 - len) * s + wobble, y * s)
+    }
+    ctx.stroke()
+  }
 
   // Bein og sko
   if (!p.sitting) {
@@ -404,6 +421,17 @@ function drawIcon(ctx: CanvasRenderingContext2D, icon: BubbleIcon, s: number, ti
       ctx.fillText('z', 4.6 * s, -3.6 * s)
       break
     }
+    case 'snakk': {
+      // Tre prikker som «snakker»
+      ctx.fillStyle = '#2B5B6C'
+      for (let i = 0; i < 3; i++) {
+        const up = Math.max(0, Math.sin(time * 6 - i * 0.9)) * 1.6 * s
+        ctx.beginPath()
+        ctx.arc((i - 1) * 4.4 * s, -up, 1.7 * s, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      break
+    }
     case 'hake': {
       ctx.strokeStyle = '#1E4D40'
       ctx.lineWidth = 2.2 * s
@@ -429,4 +457,5 @@ export const agentPose = (a: Agent, sx: number, sy: number, time: number): Pose 
   time,
   alpha: a.alpha,
   tired: a.energy < 18,
+  hurry: a.hurry,
 })

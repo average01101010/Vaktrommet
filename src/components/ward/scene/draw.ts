@@ -1,7 +1,8 @@
-import type { UpgradeLevels } from '@/types'
+import type { UpgradeLevels, WardTypeId } from '@/types'
 import type { Crew } from './agents'
 import { agentPose, drawBubble, drawFigure, styleFor, type FigureStyle } from './character'
 import { box, keyframe, mix, onFloor, onPlaneX, onPlaneY, P, poly, roundRect, shade, WORLD, type View } from './iso'
+import { NOTE_COLORS, WARD_LOOKS, type DoorAlarm, type DoorSlot, type SceneNote, type WardLook } from './layout'
 
 const { W, D, H, SPLIT } = WORLD
 
@@ -11,9 +12,18 @@ export interface SceneInput {
   /** Animasjonstid i sekunder. */
   time: number
   upgrades: UpgradeLevels
-  /** Antall aktive Post-it-lapper – vises på korktavla. */
-  postIts: number
+  wardType: WardTypeId
+  /** Pasientdørene som vises (følger sengetallet). */
+  doors: DoorSlot[]
+  /** Varsellampa over hver dør. */
+  alarms: DoorAlarm[]
+  /** Aktive Post-it-lapper – henger på korktavla i rommet. */
+  notes: SceneNote[]
   trivsel: number
+  /** Et takkekort fra pårørende virker akkurat nå. */
+  thanksActive: boolean
+  /** Beboeren sitter i lenestolen (ikke om natta). */
+  residentPresent: boolean
   crew: Crew
 }
 
@@ -55,17 +65,20 @@ export interface Light {
   night: number
 }
 
-export function lighting(minuteOfDay: number): Light {
-  const dark = keyframe(minuteOfDay, [[0, 0.56], [330, 0.56], [420, 0.2], [510, 0], [990, 0], [1140, 0.14], [1290, 0.38], [1380, 0.54]])
-  const warm = keyframe(minuteOfDay, [[0, 0], [350, 0], [420, 0.55], [510, 0], [990, 0], [1140, 0.7], [1260, 0.5], [1380, 0]])
-  const night = Math.pow(Math.min(1, dark / 0.56), 1.3)
+export function lighting(minuteOfDay: number, look?: WardLook): Light {
+  const baseDark = keyframe(minuteOfDay, [[0, 0.56], [330, 0.56], [420, 0.2], [510, 0], [990, 0], [1140, 0.14], [1290, 0.38], [1380, 0.54]])
+  const baseWarm = keyframe(minuteOfDay, [[0, 0], [350, 0], [420, 0.55], [510, 0], [990, 0], [1140, 0.7], [1260, 0.5], [1380, 0]])
+  // Noen avdelinger har dempet, varmt lys også midt på dagen.
+  const dark = Math.max(baseDark, look?.dim ?? 0)
+  const warm = Math.max(baseWarm, look?.warm ?? 0)
+  const night = Math.pow(Math.min(1, baseDark / 0.56), 1.3)
   return {
     dark,
     warm,
     night,
     lamp: Math.max(0, Math.min(1, (dark - 0.06) / 0.14)),
-    skyTop: mixRgb(mixHex('#9FCDE6', '#6475AE', warm), '#0E1836', night),
-    skyBottom: mixRgb(mixHex('#E2F1F4', '#F5A76B', warm), '#22325C', night),
+    skyTop: mixRgb(mixHex('#9FCDE6', '#6475AE', baseWarm), '#0E1836', night),
+    skyBottom: mixRgb(mixHex('#E2F1F4', '#F5A76B', baseWarm), '#22325C', night),
   }
 }
 
@@ -82,7 +95,7 @@ function mixRgb(rgb: string, hex: string, t: number): string {
 // Gulv og vegger
 // ---------------------------------------------------------------------------
 
-function drawShell(ctx: CanvasRenderingContext2D, v: View): void {
+function drawShell(ctx: CanvasRenderingContext2D, v: View, look: WardLook, wardType: WardTypeId): void {
   // Myk skygge under dioramaet
   const [cx, cy] = P(v, W / 2, D / 2, -0.3)
   const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, v.tw * 4.4)
@@ -98,9 +111,9 @@ function drawShell(ctx: CanvasRenderingContext2D, v: View): void {
 
   // Gulvplate
   box(ctx, v, 0, 0, -0.2, W, D, 0.2, { top: C.wood, left: C.woodSideL, right: C.woodSideR })
-  poly(ctx, [P(v, SPLIT, 0), P(v, W, 0), P(v, W, D), P(v, SPLIT, D)], C.lino)
-  poly(ctx, [P(v, SPLIT, D, 0), P(v, W, D, 0), P(v, W, D, -0.2), P(v, SPLIT, D, -0.2)], '#AEBBAF')
-  poly(ctx, [P(v, W, 0, 0), P(v, W, D, 0), P(v, W, D, -0.2), P(v, W, 0, -0.2)], '#9FAEA2')
+  poly(ctx, [P(v, SPLIT, 0), P(v, W, 0), P(v, W, D), P(v, SPLIT, D)], look.lino)
+  poly(ctx, [P(v, SPLIT, D, 0), P(v, W, D, 0), P(v, W, D, -0.2), P(v, SPLIT, D, -0.2)], shade(look.lino, -0.18))
+  poly(ctx, [P(v, W, 0, 0), P(v, W, D, 0), P(v, W, D, -0.2), P(v, W, 0, -0.2)], shade(look.lino, -0.26))
 
   onFloor(ctx, v, 0, () => {
     // Parkett i vaktrommet
@@ -130,7 +143,7 @@ function drawShell(ctx: CanvasRenderingContext2D, v: View): void {
     ctx.stroke()
 
     // Linoleum i korridoren: kantstripe og fliser
-    ctx.fillStyle = C.linoEdge
+    ctx.fillStyle = look.linoEdge
     ctx.fillRect(SPLIT * 100, 0, (W - SPLIT) * 100, 26)
     ctx.fillRect(SPLIT * 100, D * 100 - 26, (W - SPLIT) * 100, 26)
     ctx.strokeStyle = 'rgba(30,77,64,0.07)'
@@ -145,6 +158,40 @@ function drawShell(ctx: CanvasRenderingContext2D, v: View): void {
       ctx.lineTo(W * 100, y)
     }
     ctx.stroke()
+    // ---- Gulvet forteller hva slags avdeling dette er ----
+    const rug = (x: number, y: number, w: number, h: number, fill: string, border: string) => {
+      ctx.fillStyle = fill
+      roundRect(ctx, x, y, w, h, 30)
+      ctx.fill()
+      ctx.strokeStyle = border
+      ctx.lineWidth = 5
+      roundRect(ctx, x + 14, y + 14, w - 28, h - 28, 20)
+      ctx.stroke()
+    }
+    if (wardType === 'demens') rug(650, 365, 300, 165, '#D9A28C', 'rgba(150,70,50,0.4)')
+    if (wardType === 'lindrende') rug(575, 365, 235, 160, '#CFC3D6', 'rgba(110,90,130,0.35)')
+    if (wardType === 'bofellesskap') {
+      rug(585, 365, 235, 165, '#E3B866', 'rgba(150,100,30,0.35)')
+      ctx.fillStyle = 'rgba(46,110,89,0.35)'
+      for (let i = 0; i < 4; i++) ctx.fillRect(610 + i * 50, 395, 26, 105)
+    }
+    if (wardType === 'korttid') {
+      // Treningsmatte under gangbarren og merket gangbane langs korridoren
+      ctx.fillStyle = '#8DBBCB'
+      roundRect(ctx, 585, 418, 215, 96, 10)
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(43,91,108,0.55)'
+      ctx.lineWidth = 6
+      ctx.setLineDash([26, 16])
+      ctx.beginPath()
+      ctx.moveTo(SPLIT * 100 + 50, 208)
+      ctx.lineTo(W * 100 - 30, 208)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.fillStyle = 'rgba(43,91,108,0.55)'
+      for (let x = SPLIT * 100 + 100; x < W * 100 - 40; x += 100) ctx.fillRect(x - 3, 190, 6, 36)
+    }
+
     // Terskel mellom rommene
     ctx.fillStyle = '#B8A07C'
     ctx.fillRect(SPLIT * 100 - 5, 340, 12, D * 100 - 340)
@@ -163,7 +210,7 @@ function drawShell(ctx: CanvasRenderingContext2D, v: View): void {
     ctx.fillStyle = gr
     ctx.fillRect(0, 0, W * 100, H * 100)
     // Brystpanel i korridoren
-    ctx.fillStyle = C.dado
+    ctx.fillStyle = look.dado
     ctx.fillRect(SPLIT * 100, zc(1.05), (W - SPLIT) * 100, 105)
     ctx.fillStyle = 'rgba(30,77,64,0.25)'
     ctx.fillRect(SPLIT * 100, zc(1.05), (W - SPLIT) * 100, 4)
@@ -321,27 +368,33 @@ function drawRightWall(
     ctx.fillRect(kx + 100, ktop + 50, 28, 30)
     ctx.fillStyle = 'rgba(28,37,38,0.25)'
     for (let i = 0; i < 4; i++) ctx.fillRect(kx + 12, ktop + 14 + i * 6, 18, 2)
-    // Aktive dilemmaer
-    const notes = ['#FBE38A', '#F9BFCC', '#C3E6CB']
-    const spots: [number, number, number][] = [[44, 10, -0.08], [76, 26, 0.06], [42, 50, 0.1]]
-    for (let i = 0; i < Math.min(3, input.postIts); i++) {
+    // Aktive dilemmaer: store, fargede lapper som følger korktavla i grensesnittet
+    const spots: [number, number, number][] = [[38, 6, -0.08], [72, 22, 0.06], [36, 48, 0.1], [74, 54, -0.05]]
+    input.notes.slice(0, spots.length).forEach((note, i) => {
       const [nx, ny, rot] = spots[i]
       ctx.save()
-      ctx.translate(kx + nx + 13, ktop + ny + 13)
-      ctx.rotate(rot + Math.sin(input.time * 2 + i) * 0.015)
-      ctx.fillStyle = 'rgba(28,37,38,0.2)'
-      ctx.fillRect(-12, -11, 27, 27)
-      ctx.fillStyle = notes[i]
-      ctx.fillRect(-13.5, -13.5, 27, 27)
+      ctx.translate(kx + nx + 16, ktop + ny + 15)
+      ctx.rotate(rot + Math.sin(input.time * 2.4 + i * 1.7) * 0.04)
+      ctx.fillStyle = 'rgba(28,37,38,0.25)'
+      ctx.fillRect(-14, -13, 33, 33)
+      ctx.fillStyle = NOTE_COLORS[note.color]
+      ctx.fillRect(-16, -16, 33, 33)
       ctx.fillStyle = '#C0392B'
       ctx.beginPath()
-      ctx.arc(0, -9, 3, 0, Math.PI * 2)
+      ctx.arc(0, -11, 3.6, 0, Math.PI * 2)
       ctx.fill()
-      ctx.fillStyle = 'rgba(28,37,38,0.35)'
-      ctx.fillRect(-8, -2, 16, 2)
-      ctx.fillRect(-8, 3, 12, 2)
+      ctx.fillStyle = 'rgba(28,37,38,0.45)'
+      ctx.fillRect(-10, -3, 21, 2.6)
+      ctx.fillRect(-10, 3, 16, 2.6)
+      ctx.fillRect(-10, 9, 19, 2.6)
+      if (note.followUp) {
+        // Utsatt sak som er kommet tilbake: rød kant
+        ctx.strokeStyle = '#B4432F'
+        ctx.lineWidth = 3
+        ctx.strokeRect(-16, -16, 33, 33)
+      }
       ctx.restore()
-    }
+    })
 
     // ---- Veggklokke ----
     const cxk = 206
@@ -407,139 +460,160 @@ function drawRightWall(
       }
     }
 
-    // ---- Pasientdører ----
+    // ---- Pasientdører: antallet følger sengetallet ----
     const takheis = up.takheis ?? 0
-    const door3Open = (up.nyfloy ?? 0) >= 1
-    drawDoor(ctx, 510, '1', 'open', L, takheis, input.time)
-    drawDoor(ctx, 690, '2', 'closed', L, 0, input.time)
-    drawDoor(ctx, 870, '3', door3Open ? 'ajar' : 'construction', L, 0, input.time)
+    const look = WARD_LOOKS[input.wardType]
+    for (const slot of input.doors) {
+      const leaf = look.doorColors ? look.doorColors[slot.index % look.doorColors.length] : null
+      drawDoor(ctx, slot, L, slot.index === 0 ? takheis : 0, input.time, leaf, input.alarms[slot.index] ?? 'none')
+    }
 
-    // Håndlist
+    // Håndlist og bilder i mellomrommene mellom dørene
     const rail = zc(0.93)
-    for (const [a, b] of [[468, 500], [612, 680], [792, 860], [972, 994]] as const) {
+    const gaps: [number, number][] = []
+    let from = SPLIT * 100 + 8
+    for (const slot of input.doors) {
+      gaps.push([from, slot.x * 100 - 10])
+      from = (slot.x + slot.w) * 100 + 12
+    }
+    gaps.push([from, W * 100 - 6])
+    gaps.forEach(([a, b], i) => {
+      if (b - a < 12) return
       ctx.fillStyle = 'rgba(28,37,38,0.14)'
       ctx.fillRect(a, rail + 6, b - a, 3)
       ctx.fillStyle = C.oak
       roundRect(ctx, a, rail, b - a, 6, 3)
       ctx.fill()
-    }
-
-    // Bilder mellom dørene
-    drawFrame(ctx, 622, zc(1.92), 50, 40, 'fjord')
-    drawFrame(ctx, 800, zc(1.92), 50, 40, 'sol')
+      // Bilder der det er plass (ikke i hjørnene, og til høyre for romskiltet)
+      if (i === 0 || i === gaps.length - 1 || b - a < 62) return
+      const cx = (a + b) / 2 + 12
+      if (input.wardType === 'demens') {
+        // Familiebilder: små rammer i klynge
+        for (const [dx, dy, col] of [[-16, 0, '#E9C9A8'], [6, -8, '#C9D8CC'], [2, 22, '#E7B7A7']] as const) {
+          ctx.fillStyle = '#7A5A38'
+          ctx.fillRect(cx + dx - 2, zc(1.95) + dy - 2, 22, 24)
+          ctx.fillStyle = col
+          ctx.fillRect(cx + dx, zc(1.95) + dy, 18, 20)
+          ctx.fillStyle = 'rgba(28,37,38,0.35)'
+          ctx.beginPath()
+          ctx.arc(cx + dx + 9, zc(1.95) + dy + 8, 4, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.fillRect(cx + dx + 4, zc(1.95) + dy + 13, 10, 7)
+        }
+      } else {
+        drawFrame(ctx, cx - 20, zc(1.92), 44, 38, i % 2 ? 'fjord' : 'sol')
+      }
+    })
   })
 }
 
+/** Én pasientdør med karm, romskilt, lampett og varsellampe. */
 function drawDoor(
   ctx: CanvasRenderingContext2D,
-  x: number,
-  label: string,
-  state: 'open' | 'closed' | 'ajar' | 'construction',
+  slot: DoorSlot,
   L: Light,
   takheis: number,
   time: number,
+  leaf: string | null,
+  alarm: DoorAlarm,
 ): void {
-  const w = 90
+  const x = slot.x * 100
+  const w = slot.w * 100
+  const k = w / 90
   const top = zc(2.06)
   const h = 206
+  const wood = leaf ?? '#CFAC80'
   // Karm
   ctx.fillStyle = '#FBF8F1'
   ctx.fillRect(x - 7, top - 7, w + 14, h + 7)
 
-  if (state === 'open') {
-    // Innsyn i pasientrommet
+  const interior = () => {
     const room = ctx.createLinearGradient(0, top, 0, top + h)
     room.addColorStop(0, mixRgb(mix('#E9DCC6', '#E2B98C', L.warm), '#39405A', L.night * 0.8))
     room.addColorStop(1, mixRgb(mix('#CDBD9F', '#C79A6E', L.warm), '#2A3048', L.night * 0.8))
     ctx.fillStyle = room
     ctx.fillRect(x, top, w, h)
-    // Vindu innerst
+  }
+
+  if (slot.state === 'open') {
+    // Innsyn i pasientrommet
+    interior()
     ctx.fillStyle = L.skyBottom
-    ctx.fillRect(x + 50, top + 38, 30, 46)
+    ctx.fillRect(x + 50 * k, top + 38, 30 * k, 46)
     ctx.fillStyle = '#FBF8F1'
-    ctx.fillRect(x + 64, top + 38, 2.5, 46)
+    ctx.fillRect(x + 64 * k, top + 38, 2.5, 46)
     // Seng
     ctx.fillStyle = '#B58E63'
-    ctx.fillRect(x + 8, top + 118, 6, 70)
+    ctx.fillRect(x + 8 * k, top + 118, 6, 70)
     ctx.fillStyle = '#F4EEE2'
-    roundRect(ctx, x + 12, top + 132, 70, 26, 6)
+    roundRect(ctx, x + 12 * k, top + 132, 70 * k, 26, 6)
     ctx.fill()
     ctx.fillStyle = '#D98B5C'
-    roundRect(ctx, x + 30, top + 132, 52, 30, 6)
+    roundRect(ctx, x + 30 * k, top + 132, 52 * k, 30, 6)
     ctx.fill()
     ctx.fillStyle = 'rgba(255,255,255,0.35)'
-    ctx.fillRect(x + 36, top + 138, 40, 4)
+    ctx.fillRect(x + 36 * k, top + 138, 40 * k, 4)
     ctx.fillStyle = '#9A7650'
-    ctx.fillRect(x + 12, top + 158, 72, 8)
-    ctx.fillRect(x + 14, top + 166, 5, 24)
-    ctx.fillRect(x + 76, top + 166, 5, 24)
+    ctx.fillRect(x + 12 * k, top + 158, 72 * k, 8)
+    ctx.fillRect(x + 14 * k, top + 166, 5, 24)
+    ctx.fillRect(x + 76 * k, top + 166, 5, 24)
     if (takheis > 0) {
       // Takheis: skinne, motor og løftebøyle
       ctx.fillStyle = '#D9DEDF'
       ctx.fillRect(x, top + 8, w, 6)
       ctx.fillStyle = C.petrol
-      roundRect(ctx, x + 36, top + 12, 26, 14, 4)
+      roundRect(ctx, x + 36 * k, top + 12, 26 * k, 14, 4)
       ctx.fill()
       const sway = Math.sin(time * 1.1) * 2
       ctx.strokeStyle = '#6E7B7D'
       ctx.lineWidth = 2
       ctx.beginPath()
-      ctx.moveTo(x + 49, top + 26)
-      ctx.lineTo(x + 49 + sway, top + 62)
+      ctx.moveTo(x + 49 * k, top + 26)
+      ctx.lineTo(x + 49 * k + sway, top + 62)
       ctx.stroke()
       ctx.strokeStyle = C.rav
       ctx.lineWidth = 3.5
       ctx.beginPath()
-      ctx.moveTo(x + 35 + sway, top + 62)
-      ctx.lineTo(x + 63 + sway, top + 62)
+      ctx.moveTo(x + 35 * k + sway, top + 62)
+      ctx.lineTo(x + 63 * k + sway, top + 62)
       ctx.stroke()
     }
     // Åpent dørblad langs veggen
-    ctx.fillStyle = '#C9A77C'
+    ctx.fillStyle = wood
     ctx.fillRect(x - 5, top, 9, h)
   } else {
-    const wood = state === 'construction' ? '#BFB8AA' : '#CFAC80'
-    ctx.fillStyle = wood
-    ctx.fillRect(x, top, w, h)
-    ctx.fillStyle = 'rgba(90,60,30,0.12)'
-    ctx.fillRect(x + 28, top, 2, h)
-    ctx.fillRect(x + 60, top, 2, h)
+    if (slot.state === 'ajar') {
+      // Døra står på gløtt: en stripe av rommet synes
+      interior()
+      ctx.fillStyle = wood
+      ctx.fillRect(x + 12 * k, top, w - 12 * k, h)
+      ctx.fillStyle = 'rgba(28,37,38,0.18)'
+      ctx.fillRect(x + 12 * k, top, 3, h)
+    } else {
+      ctx.fillStyle = wood
+      ctx.fillRect(x, top, w, h)
+    }
+    ctx.fillStyle = 'rgba(60,40,20,0.14)'
+    ctx.fillRect(x + 28 * k, top, 2, h)
+    ctx.fillRect(x + 60 * k, top, 2, h)
     // Lite vindu og håndtak
-    ctx.fillStyle = state === 'construction' ? '#9FA8A8' : mixRgb(mix('#F4E7C4', '#F2C58C', L.warm), '#F1D79A', L.night)
-    roundRect(ctx, x + 56, top + 30, 20, 52, 5)
+    ctx.fillStyle = mixRgb(mix('#F4E7C4', '#F2C58C', L.warm), '#F1D79A', L.night)
+    roundRect(ctx, x + 56 * k, top + 30, 20 * k, 52, 5)
     ctx.fill()
     ctx.fillStyle = '#6E7B7D'
-    roundRect(ctx, x + 10, top + 104, 16, 5, 2.5)
+    roundRect(ctx, x + 14 * k, top + 104, 16 * k, 5, 2.5)
     ctx.fill()
-    if (state === 'construction') {
-      // Sperrebånd
-      ctx.save()
-      ctx.beginPath()
-      ctx.rect(x - 7, top, w + 14, h)
-      ctx.clip()
-      for (const yy of [top + 70, top + 128]) {
-        ctx.save()
-        ctx.translate(x + w / 2, yy)
-        ctx.rotate(yy === top + 70 ? -0.16 : 0.14)
-        for (let i = -8; i < 8; i++) {
-          ctx.fillStyle = i % 2 ? '#F7F5F0' : C.rav
-          ctx.fillRect(i * 11, -6, 11, 12)
-        }
-        ctx.restore()
-      }
-      ctx.restore()
-    }
   }
 
   // Romskilt
   ctx.fillStyle = C.papir
-  roundRect(ctx, x + w + 12, top + 62, 20, 22, 3)
+  roundRect(ctx, x + w + 9, top + 62, 18, 21, 3)
   ctx.fill()
-  ctx.fillStyle = state === 'construction' ? '#9FA8A8' : C.skog
-  ctx.font = '800 14px "JetBrains Mono Variable", monospace'
+  ctx.fillStyle = leaf ?? C.skog
+  ctx.font = '800 13px "JetBrains Mono Variable", monospace'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(label, x + w + 22, top + 74)
+  ctx.fillText(slot.label, x + w + 18, top + 73)
 
   // Lampett over døra
   ctx.fillStyle = '#F4EEE2'
@@ -553,6 +627,23 @@ function drawDoor(
     ctx.fillStyle = glow
     ctx.fillRect(x - 10, top - 62, w + 20, 96)
   }
+
+  // Varsellampe (pasientsignal) ved karmen
+  ctx.fillStyle = '#C9CED0'
+  roundRect(ctx, x + w - 4, top - 30, 12, 16, 3)
+  ctx.fill()
+  ctx.fillStyle = alarmColor(alarm, time) ?? '#EEF0F0'
+  ctx.beginPath()
+  ctx.arc(x + w + 2, top - 22, 4.6, 0, Math.PI * 2)
+  ctx.fill()
+}
+
+/** Fargen på varsellampa: blinker rødt til noen kommer, gult mens det håndteres, grønt når det er løst. */
+function alarmColor(alarm: DoorAlarm, time: number): string | null {
+  if (alarm === 'blink') return Math.sin(time * 9) > -0.2 ? '#E5432D' : '#7A2A20'
+  if (alarm === 'handling') return '#F0B43C'
+  if (alarm === 'ok') return '#3FA56B'
+  return null
 }
 
 function drawFrame(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, motif: 'fjord' | 'sol'): void {
@@ -648,6 +739,7 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
   const ergo = up.ergonomi ?? 0
   const espresso = up.espressomaskin ?? 0
   const green = up.sansehage ?? 0
+  const stille = (up.stillerapport ?? 0) >= 1
 
   // ---- Kjøkkenbenk med kaffe ----
   add(1.9, () => {
@@ -755,7 +847,7 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
   })
 
   // ---- PC-pult ----
-  const deskH = ergo >= 1 ? 1.0 : 0.72
+  const deskH = 0.72
   add(4.0, () => {
     const leg = ergo >= 1 ? '#EDEBE5' : '#8C7A5B'
     box(ctx, v, 3.06, 0.08, 0, 0.07, 0.44, deskH, { top: leg, left: shade(leg, -0.1), right: shade(leg, -0.2) })
@@ -782,6 +874,8 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
     // Tastatur og kopp
     box(ctx, v, 3.42, 0.34, mz, 0.5, 0.15, 0.02, { top: '#EDEBE5', left: '#CFCBC2', right: '#BDB8AD' })
     box(ctx, v, 4.06, 0.3, mz, 0.1, 0.1, 0.1, { top: '#F7F5F0', left: C.petrol, right: shade(C.petrol, -0.15) })
+    // Hev/senk-pult: betjeningspanel under plata
+    if (ergo >= 1) box(ctx, v, 3.1, 0.5, deskH - 0.07, 0.16, 0.1, 0.05, { top: '#3A3E3F', left: '#232728', right: '#2E3233' })
   })
 
   // ---- Stol bak rapportbordet ----
@@ -803,6 +897,8 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
   chair(1.45, 2.78, 'x-')
   chair(2.62, 3.78, 'y+')
   chair(2.7, 1.86, 'y-')
+  // Dokumentasjonsplassen: nattevaktas faste stol
+  chair(3.45, 0.85, 'y+')
 
   // ---- Rapportbord ----
   add(5.75, () => {
@@ -823,33 +919,81 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
         ctx.arc(240, 318, 10, 0, Math.PI * 1.6)
         ctx.stroke()
       }
-      // Rapportark
-      ctx.fillStyle = C.papir
-      ctx.save()
-      ctx.translate(232, 272)
-      ctx.rotate(0.12)
-      ctx.fillRect(-18, -24, 36, 48)
-      ctx.fillStyle = 'rgba(28,37,38,0.3)'
-      for (let i = 0; i < 5; i++) ctx.fillRect(-13, -18 + i * 8, 26 - (i % 2) * 8, 2.5)
-      ctx.restore()
-      ctx.fillStyle = '#FBE38A'
-      ctx.fillRect(268, 300, 18, 18)
-      ctx.fillStyle = C.papir
-      ctx.save()
-      ctx.translate(318, 304)
-      ctx.rotate(-0.2)
-      ctx.fillRect(-16, -22, 32, 44)
-      ctx.fillStyle = 'rgba(43,91,108,0.4)'
-      for (let i = 0; i < 4; i++) ctx.fillRect(-11, -15 + i * 8, 22, 2.5)
-      ctx.restore()
+      if (stille) {
+        // Stille rapport: nettbrett med journalen oppe
+        for (const [tx, ty, rot] of [[232, 272, 0.12], [318, 306, -0.2], [286, 262, 0.5]] as const) {
+          ctx.save()
+          ctx.translate(tx, ty)
+          ctx.rotate(rot)
+          ctx.fillStyle = '#23292A'
+          roundRect(ctx, -17, -23, 34, 46, 5)
+          ctx.fill()
+          ctx.fillStyle = '#CFEAF2'
+          ctx.fillRect(-13, -19, 26, 38)
+          ctx.fillStyle = '#1E4D40'
+          ctx.fillRect(-13, -19, 26, 6)
+          ctx.fillStyle = 'rgba(43,91,108,0.55)'
+          for (let i = 0; i < 4; i++) ctx.fillRect(-10, -9 + i * 7, 20 - (i % 2) * 6, 2.5)
+          ctx.restore()
+        }
+      } else {
+        // Muntlig rapport: ark, gule lapper og papirbunker
+        ctx.fillStyle = C.papir
+        ctx.save()
+        ctx.translate(232, 272)
+        ctx.rotate(0.12)
+        ctx.fillRect(-18, -24, 36, 48)
+        ctx.fillStyle = 'rgba(28,37,38,0.3)'
+        for (let i = 0; i < 5; i++) ctx.fillRect(-13, -18 + i * 8, 26 - (i % 2) * 8, 2.5)
+        ctx.restore()
+        ctx.fillStyle = '#FBE38A'
+        ctx.fillRect(268, 300, 18, 18)
+        ctx.fillStyle = C.papir
+        ctx.save()
+        ctx.translate(318, 304)
+        ctx.rotate(-0.2)
+        ctx.fillRect(-16, -22, 32, 44)
+        ctx.fillStyle = 'rgba(43,91,108,0.4)'
+        for (let i = 0; i < 4; i++) ctx.fillRect(-11, -15 + i * 8, 22, 2.5)
+        ctx.restore()
+      }
     })
+    if (stille) {
+      // Laptop med lysende skjerm
+      box(ctx, v, 3.02, 2.98, 0.77, 0.36, 0.24, 0.02, { top: '#D5DADB', left: '#BFC6C7', right: '#A9B1B2' })
+      box(ctx, v, 3.02, 2.96, 0.79, 0.36, 0.025, 0.24, { top: '#3A3E3F', left: '#CFEAF2', right: '#232728' })
+    } else {
+      // Papirbunke og perm
+      box(ctx, v, 3.0, 2.96, 0.77, 0.3, 0.24, 0.07, { top: C.papir, left: '#E6DFD0', right: '#D6CEBD' })
+      box(ctx, v, 3.04, 3.0, 0.84, 0.3, 0.2, 0.035, { top: '#2B5B6C', left: '#234E5E', right: '#1C4250' })
+    }
     // Kopper med damp
     box(ctx, v, 2.86, 2.62, 0.77, 0.1, 0.1, 0.1, { top: '#5A3A22', left: C.rav, right: shade(C.rav, -0.15) })
     box(ctx, v, 2.24, 3.1, 0.77, 0.1, 0.1, 0.1, { top: '#5A3A22', left: '#F7F5F0', right: '#E2DCCF' })
     const [sx, sy] = P(v, 2.91, 2.67, 0.9)
     steam(ctx, v, sx, sy, t + 0.3, 0.8)
-    // Bolleboks
-    box(ctx, v, 3.22, 2.52, 0.77, 0.22, 0.16, 0.07, { top: '#E9C46A', left: '#D9B052', right: '#C89D42' })
+
+    if (input.thanksActive) {
+      // Takk fra pårørende: konfekteske og blomsterbukett på bordet
+      box(ctx, v, 3.16, 2.48, 0.77, 0.32, 0.22, 0.06, { top: '#B4432F', left: '#96382A', right: '#7D2E22' })
+      onFloor(ctx, v, 0.835, () => {
+        ctx.fillStyle = '#E9C46A'
+        ctx.fillRect(330, 248, 5, 22)
+        ctx.fillRect(316, 257, 32, 5)
+      })
+      box(ctx, v, 2.36, 2.52, 0.77, 0.11, 0.11, 0.17, { top: '#7FB0C2', left: '#5E96AB', right: '#4C8298' })
+      const [fx, fy] = P(v, 2.415, 2.575, 1.0)
+      leafBlob(ctx, fx, fy, 8.5 * v.s, '#3F8A63', t, 0.5)
+      for (const [dx, dy, col] of [[-5, -7, '#E9897A'], [4, -9, '#F2C14E'], [0, -13, '#D9534F'], [7, -4, '#F4EEE2'], [-7, -2, '#C2788A']] as const) {
+        ctx.fillStyle = col
+        ctx.beginPath()
+        ctx.arc(fx + dx * v.s, fy + dy * v.s, 2.6 * v.s, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    } else {
+      // Bolleboks
+      box(ctx, v, 3.22, 2.52, 0.77, 0.22, 0.16, 0.07, { top: '#E9C46A', left: '#D9B052', right: '#C89D42' })
+    }
   })
 
   // ---- Glassvegg mot korridoren ----
@@ -876,50 +1020,50 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
     })
   }
 
-  // ---- Korridor: medisintralle ----
+  // ---- Korridor: medisintralle (står langs glassveggen, så dørveggen er fri) ----
   if ((up.medisintralle ?? 0) >= 1) {
     add(6.9, () => {
-      const [w1x, w1y] = P(v, 6.26, 0.6, 0.06)
-      const [w2x, w2y] = P(v, 6.74, 0.6, 0.06)
+      const [w1x, w1y] = P(v, 5.02, 1.62, 0.06)
+      const [w2x, w2y] = P(v, 5.02, 2.08, 0.06)
       ctx.fillStyle = '#2A2D2E'
       ctx.beginPath()
       ctx.arc(w1x, w1y, 3 * v.s, 0, Math.PI * 2)
       ctx.arc(w2x, w2y, 3 * v.s, 0, Math.PI * 2)
       ctx.fill()
-      box(ctx, v, 6.2, 0.16, 0.12, 0.6, 0.44, 0.78, { top: '#F4F1EA', left: '#FBF8F1', right: '#DCD6C9' })
-      onPlaneY(ctx, v, 0.6, 0.9, () => {
+      box(ctx, v, 4.68, 1.55, 0.12, 0.34, 0.6, 0.78, { top: '#F4F1EA', left: '#FBF8F1', right: '#DCD6C9' })
+      onPlaneX(ctx, v, 5.02, 0.9, () => {
         const cols = ['#B4432F', '#D97736', '#2B5B6C', '#1E4D40']
         for (let r = 0; r < 4; r++) {
           ctx.fillStyle = cols[r]
-          roundRect(ctx, 624, 6 + r * 18, 52, 14, 2)
+          roundRect(ctx, 159, 6 + r * 18, 52, 14, 2)
           ctx.fill()
           ctx.fillStyle = 'rgba(255,255,255,0.75)'
-          ctx.fillRect(644, 11 + r * 18, 12, 3)
+          ctx.fillRect(179, 11 + r * 18, 12, 3)
         }
       })
-      box(ctx, v, 6.3, 0.24, 0.9, 0.12, 0.12, 0.1, { top: '#FFFFFF', left: '#EDEBE5', right: '#DCD6C9' })
-      box(ctx, v, 6.52, 0.24, 0.9, 0.18, 0.22, 0.05, { top: '#BFE3EE', left: '#9CCBDA', right: '#86B9C9' })
+      box(ctx, v, 4.76, 1.64, 0.9, 0.12, 0.12, 0.1, { top: '#FFFFFF', left: '#EDEBE5', right: '#DCD6C9' })
+      box(ctx, v, 4.74, 1.86, 0.9, 0.2, 0.2, 0.05, { top: '#BFE3EE', left: '#9CCBDA', right: '#86B9C9' })
     })
   }
 
   // ---- Korridor: blærescanner ----
   if ((up.blaerescanner ?? 0) >= 1) {
-    add(8.75, () => {
-      box(ctx, v, 8.12, 0.26, 0, 0.3, 0.3, 0.05, { top: '#6E7B7D', left: '#55595A', right: '#484C4D' })
-      box(ctx, v, 8.25, 0.39, 0.05, 0.04, 0.04, 1.0, { top: '#D5DADB', left: '#BFC6C7', right: '#A9B1B2' })
-      box(ctx, v, 8.1, 0.36, 1.05, 0.34, 0.1, 0.24, { top: '#FFFFFF', left: '#F4F1EA', right: '#DCD6C9' })
-      onPlaneY(ctx, v, 0.46, 1.29, () => {
+    add(7.45, () => {
+      box(ctx, v, 4.72, 2.34, 0, 0.3, 0.3, 0.05, { top: '#6E7B7D', left: '#55595A', right: '#484C4D' })
+      box(ctx, v, 4.85, 2.47, 0.05, 0.04, 0.04, 1.0, { top: '#D5DADB', left: '#BFC6C7', right: '#A9B1B2' })
+      box(ctx, v, 4.74, 2.36, 1.05, 0.1, 0.3, 0.24, { top: '#FFFFFF', left: '#F4F1EA', right: '#DCD6C9' })
+      onPlaneX(ctx, v, 4.84, 1.29, () => {
         ctx.fillStyle = '#123E4C'
-        roundRect(ctx, 813, 3, 28, 18, 2)
+        roundRect(ctx, 238, 3, 26, 18, 2)
         ctx.fill()
         ctx.strokeStyle = '#6FE0D0'
         ctx.lineWidth = 2
         ctx.beginPath()
-        ctx.arc(827, 13, 5 + Math.sin(t * 3) * 1.2, 0, Math.PI * 2)
+        ctx.arc(251, 12, 5 + Math.sin(t * 3) * 1.2, 0, Math.PI * 2)
         ctx.stroke()
       })
       // Probe i holder
-      box(ctx, v, 8.36, 0.42, 0.78, 0.06, 0.06, 0.2, { top: '#2B5B6C', left: '#2B5B6C', right: '#234E5E' })
+      box(ctx, v, 4.9, 2.4, 0.78, 0.06, 0.06, 0.2, { top: '#2B5B6C', left: '#2B5B6C', right: '#234E5E' })
     })
   }
 
@@ -935,42 +1079,51 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
     box(ctx, v, 8.74, 5.1, 0.4, 0.62, 0.1, 0.2, { top: shade(col, 0.16), left: col, right: shade(col, -0.18) })
   })
   add(8.3 + 4.85 + 0.2, () => {
-    // Beboer i stolen
-    const [sx, sy] = P(v, 9.02, 4.82, 0.34)
-    const resident: FigureStyle = {
-      top: '#7B6A8E',
-      trousers: '#5A5148',
-      skin: '#F0CDB5',
-      hair: '#E3E0DA',
-      hairStyle: 3,
-      accessory: 1,
-      staff: false,
+    if (input.residentPresent) {
+      // Beboer i stolen
+      const [sx, sy] = P(v, 9.02, 4.82, 0.34)
+      const resident: FigureStyle = {
+        top: '#7B6A8E',
+        trousers: '#5A5148',
+        skin: '#F0CDB5',
+        hair: '#E3E0DA',
+        hairStyle: 3,
+        accessory: 1,
+        staff: false,
+      }
+      drawFigure(ctx, v, resident, {
+        sx,
+        sy,
+        flip: 1,
+        away: false,
+        sitting: true,
+        walking: false,
+        phase: 1.3,
+        time: t,
+        alpha: 1,
+        tired: input.trivsel < 30,
+      })
     }
-    drawFigure(ctx, v, resident, {
-      sx,
-      sy,
-      flip: 1,
-      away: false,
-      sitting: true,
-      walking: false,
-      phase: 1.3,
-      time: t,
-      alpha: 1,
-      tired: input.trivsel < 30,
-    })
-    // Pledd over fanget
-    const [bx, by] = P(v, 9.12, 4.86, 0.44)
+    // Pledd: over fanget på dagen, brettet over setet og armlenet om natta
+    const [bx, by] = P(v, 9.12, 4.86, input.residentPresent ? 0.44 : 0.42)
+    const wide = input.residentPresent ? 20 : 26
     ctx.fillStyle = '#E9C46A'
-    roundRect(ctx, bx - 9 * v.s, by - 3 * v.s, 20 * v.s, 9 * v.s, 3 * v.s)
+    roundRect(ctx, bx - (wide / 2 + 1) * v.s, by - 3 * v.s, wide * v.s, (input.residentPresent ? 9 : 12) * v.s, 3 * v.s)
     ctx.fill()
     ctx.strokeStyle = 'rgba(180,97,42,0.6)'
     ctx.lineWidth = 1.2 * v.s
     ctx.beginPath()
-    ctx.moveTo(bx - 6 * v.s, by)
-    ctx.lineTo(bx + 8 * v.s, by)
-    ctx.moveTo(bx - 6 * v.s, by + 3 * v.s)
-    ctx.lineTo(bx + 8 * v.s, by + 3 * v.s)
+    for (let i = 0; i < (input.residentPresent ? 2 : 3); i++) {
+      ctx.moveTo(bx - (wide / 2 - 2) * v.s, by + i * 3 * v.s)
+      ctx.lineTo(bx + (wide / 2 - 3) * v.s, by + i * 3 * v.s)
+    }
     ctx.stroke()
+    if (!input.residentPresent) {
+      // Fliken som henger ned foran setet
+      ctx.fillStyle = '#DDB65A'
+      roundRect(ctx, bx - 2 * v.s, by + 8 * v.s, 12 * v.s, 8 * v.s, 2 * v.s)
+      ctx.fill()
+    }
   })
   add(9.55 + 4.3, () => {
     // Gulvlampe
@@ -986,6 +1139,136 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
     ctx.closePath()
     ctx.fill()
   })
+
+  // ---- Interiør som gir hver avdelingstype sitt preg ----
+  /** Lenestol som vender mot kamera (ryggen inn mot veggen). */
+  const armchair = (x: number, y: number, w: number, col: string) => {
+    add(x + w / 2 + y + 0.4, () => {
+      box(ctx, v, x, y, 0, w, 0.14, 0.98, { top: shade(col, 0.16), left: col, right: shade(col, -0.12) })
+      box(ctx, v, x, y + 0.14, 0.4, 0.1, 0.6, 0.2, { top: shade(col, 0.16), left: col, right: shade(col, -0.18) })
+      box(ctx, v, x, y + 0.14, 0, w, 0.6, 0.4, { top: shade(col, 0.2), left: col, right: shade(col, -0.18) })
+      box(ctx, v, x + w - 0.1, y + 0.14, 0.4, 0.1, 0.6, 0.2, { top: shade(col, 0.16), left: col, right: shade(col, -0.18) })
+    })
+  }
+  const sideTable = (x: number, y: number, size: number, top: string) => {
+    box(ctx, v, x + size / 2 - 0.05, y + size / 2 - 0.05, 0, 0.1, 0.1, 0.4, { top: '#8A6A45', left: '#8A6A45', right: '#6E5435' })
+    box(ctx, v, x, y, 0.4, size, size, 0.05, { top, left: shade(top, -0.14), right: shade(top, -0.24) })
+  }
+  const vase = (x: number, y: number, z: number, flowers: string[]) => {
+    box(ctx, v, x - 0.045, y - 0.045, z, 0.09, 0.09, 0.14, { top: '#F4EEE2', left: '#E2DCCF', right: '#CFC8B8' })
+    const [fx, fy] = P(v, x, y, z + 0.2)
+    leafBlob(ctx, fx, fy, 6.5 * v.s, '#3F8A63', t, 0.5)
+    flowers.forEach((col, i) => {
+      ctx.fillStyle = col
+      ctx.beginPath()
+      ctx.arc(fx + (i - 1) * 4 * v.s, fy - (5 + (i % 2) * 4) * v.s, 2.3 * v.s, 0, Math.PI * 2)
+      ctx.fill()
+    })
+  }
+
+  if (input.wardType === 'demens') {
+    // Hjemmekoselig stue: ekstra lenestol, kaffebord med duk og en minnehylle med bilder og radio
+    armchair(6.8, 3.75, 0.75, '#6F8F6A')
+    add(7.52 + 4.97 + 0.3, () => {
+      sideTable(7.3, 4.75, 0.45, '#C99D6B')
+      onFloor(ctx, v, 0.455, () => {
+        ctx.fillStyle = '#FBF8F1'
+        ctx.beginPath()
+        ctx.arc(752, 497, 17, 0, Math.PI * 2)
+        ctx.fill()
+      })
+      vase(7.52, 4.97, 0.45, ['#E9897A', '#F2C14E', '#C2788A'])
+    })
+    add(4.84 + 3.05 + 0.1, () => {
+      box(ctx, v, 4.68, 2.78, 0, 0.32, 0.56, 0.86, { top: shade(C.oak, 0.1), left: C.oak, right: C.oakDark })
+      onPlaneX(ctx, v, 5.0, 0.86, () => {
+        ctx.strokeStyle = 'rgba(90,60,30,0.35)'
+        ctx.lineWidth = 2.5
+        ctx.strokeRect(282, 8, 48, 34)
+        ctx.strokeRect(282, 46, 48, 34)
+      })
+      // Bilderammer og radio på toppen
+      box(ctx, v, 4.74, 2.84, 0.86, 0.04, 0.14, 0.17, { top: '#7A5A38', left: '#7A5A38', right: '#E9C9A8' })
+      box(ctx, v, 4.74, 3.04, 0.86, 0.04, 0.12, 0.14, { top: '#7A5A38', left: '#7A5A38', right: '#C9D8CC' })
+      box(ctx, v, 4.8, 3.18, 0.86, 0.14, 0.12, 0.12, { top: '#E8D2AC', left: '#D9BE93', right: '#C4A77A' })
+    })
+  }
+
+  if (input.wardType === 'korttid') {
+    // Gangbarre, prekestol og treningsball
+    const steel = { top: '#E6EAEB', left: '#C9D0D2', right: '#AEB7B9' }
+    add(6.0 + 4.34, () => {
+      box(ctx, v, 5.98, 4.3, 0, 0.05, 0.05, 0.9, steel)
+      box(ctx, v, 7.8, 4.3, 0, 0.05, 0.05, 0.9, steel)
+      box(ctx, v, 5.98, 4.3, 0.86, 1.87, 0.05, 0.05, steel)
+    })
+    add(7.8 + 5.02, () => {
+      box(ctx, v, 5.98, 4.98, 0, 0.05, 0.05, 0.9, steel)
+      box(ctx, v, 7.8, 4.98, 0, 0.05, 0.05, 0.9, steel)
+      box(ctx, v, 5.98, 4.98, 0.86, 1.87, 0.05, 0.05, steel)
+    })
+    add(6.45 + 3.85, () => {
+      // Prekestol (høy rullator med underarmsstøtte)
+      const frame = { top: '#3D7868', left: '#2B5B4D', right: '#234E42' }
+      for (const [px, py] of [[6.25, 3.62], [6.6, 3.62], [6.25, 3.94], [6.6, 3.94]] as const) {
+        box(ctx, v, px, py, 0.08, 0.035, 0.035, 0.95, frame)
+        const [wx, wy] = P(v, px + 0.02, py + 0.02, 0.05)
+        ctx.fillStyle = '#2A2D2E'
+        ctx.beginPath()
+        ctx.arc(wx, wy, 2.6 * v.s, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      box(ctx, v, 6.22, 3.6, 1.03, 0.44, 0.4, 0.05, { top: '#55595A', left: '#3B3F40', right: '#2E3233' })
+    })
+    add(5.75 + 5.12 + 0.1, () => {
+      const [bx, by] = P(v, 5.75, 5.12, 0.26)
+      const r = 13 * v.s
+      ctx.fillStyle = 'rgba(28,37,38,0.18)'
+      ctx.beginPath()
+      ctx.ellipse(bx, by + r * 0.95, r * 0.9, r * 0.32, 0, 0, Math.PI * 2)
+      ctx.fill()
+      const g = ctx.createRadialGradient(bx - r * 0.35, by - r * 0.4, r * 0.1, bx, by, r)
+      g.addColorStop(0, '#7FD3C4')
+      g.addColorStop(1, '#2E8B7A')
+      ctx.fillStyle = g
+      ctx.beginPath()
+      ctx.arc(bx, by, r, 0, Math.PI * 2)
+      ctx.fill()
+    })
+  }
+
+  if (input.wardType === 'lindrende') {
+    // Pårørendekrok: to ekstra lenestoler, et lite bord med lys og blomster
+    armchair(5.95, 3.78, 0.75, '#8E7B9B')
+    armchair(6.9, 3.78, 0.75, '#7C9A8B')
+    add(6.78 + 4.92 + 0.3, () => {
+      sideTable(6.55, 4.7, 0.45, '#D9C7A6')
+      vase(6.68, 4.84, 0.45, ['#F4EEE2', '#C2788A', '#F4EEE2'])
+      // Telys i glass
+      box(ctx, v, 6.84, 4.98, 0.45, 0.07, 0.07, 0.08, { top: '#FFE7B0', left: 'rgba(255,220,160,0.8)', right: 'rgba(240,200,140,0.8)' })
+      const [cx, cy] = P(v, 6.875, 5.015, 0.58)
+      const flick = 1 + Math.sin(t * 9) * 0.12
+      ctx.fillStyle = '#FFC457'
+      ctx.beginPath()
+      ctx.ellipse(cx, cy, 1.6 * v.s, 2.8 * v.s * flick, 0, 0, Math.PI * 2)
+      ctx.fill()
+    })
+  }
+
+  if (input.wardType === 'bofellesskap') {
+    // Fellesstue: sofa og spillbord
+    armchair(6.0, 3.78, 1.5, '#C99A3F')
+    add(6.9 + 4.95 + 0.3, () => {
+      sideTable(6.5, 4.72, 0.8, '#C99D6B')
+      onFloor(ctx, v, 0.455, () => {
+        const cols = ['#B4432F', '#2B5B6C', '#E9C46A', '#1E4D40']
+        for (let i = 0; i < 16; i++) {
+          ctx.fillStyle = cols[(i + Math.floor(i / 4)) % 4]
+          ctx.fillRect(668 + (i % 4) * 11, 490 + Math.floor(i / 4) * 11, 10, 10)
+        }
+      })
+    })
+  }
 
   // ---- Planter (flere og frodigere for hvert nivå) ----
   const lush = 0.78 + Math.min(4, Math.max(0, green - 1)) * 0.05
@@ -1081,6 +1364,7 @@ function applyLighting(
   up: UpgradeLevels,
   layer: LightLayer,
   dpr: number,
+  doors: DoorSlot[],
 ): void {
   if (L.dark < 0.01 && L.warm < 0.01) return
   const warmLamps = (up.dognrytmelys ?? 0) >= 1
@@ -1117,8 +1401,8 @@ function applyLighting(
   hole(gx, gy, v.tw * 1.5, 0.8, L.lamp * 0.8)
   const [mx, my] = P(v, 3.7, 0.5, 1.1)
   hole(mx, my, v.tw * 0.9, 1, L.lamp * 0.55)
-  for (const dx of [5.55, 7.35, 9.15]) {
-    const [sx, sy] = P(v, dx, 0.1, 1.9)
+  for (const door of doors) {
+    const [sx, sy] = P(v, door.cx, 0.1, 1.9)
     hole(sx, sy, v.tw * 1.1, 1.2, L.lamp * 0.6)
   }
   const [kx, ky] = P(v, 0.4, 1.6, 1.0)
@@ -1187,9 +1471,10 @@ export function drawScene(
 ): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, v.width, v.height)
-  const L = lighting(input.minuteOfDay)
+  const look = WARD_LOOKS[input.wardType]
+  const L = lighting(input.minuteOfDay, look)
 
-  drawShell(ctx, v)
+  drawShell(ctx, v, look, input.wardType)
   drawLeftWall(ctx, v, L, input.upgrades, input.time)
   drawRightWall(ctx, v, L, input.upgrades, input)
   drawWindowLight(ctx, v, L)
@@ -1199,17 +1484,84 @@ export function drawScene(
   for (const o of objects) o.draw()
 
   drawLamps(ctx, v, L, input.upgrades)
-  applyLighting(ctx, v, L, input.upgrades, layer, dpr)
+  applyLighting(ctx, v, L, input.upgrades, layer, dpr, input.doors)
 
-  // Statusbobler tegnes etter lyssettingen så de alltid er lesbare
+  // ---- Alt under tegnes etter lyssettingen, så det synes også om natta ----
+
+  // Varsellamper: lysskjær rundt lampa, og en tydelig puls når den blinker
+  for (const door of input.doors) {
+    const alarm = input.alarms[door.index] ?? 'none'
+    if (alarm === 'none') continue
+    const [ax, ay] = P(v, door.x + door.w + 0.02, 0, 2.28)
+    const on = alarm !== 'blink' || Math.sin(input.time * 9) > -0.2
+    const rgb = alarm === 'blink' ? '229,67,45' : alarm === 'handling' ? '240,180,60' : '63,165,107'
+    if (on) {
+      const r = (alarm === 'blink' ? 22 : 15) * v.s
+      const g = ctx.createRadialGradient(ax, ay, 0, ax, ay, r)
+      g.addColorStop(0, `rgba(${rgb},0.85)`)
+      g.addColorStop(0.3, `rgba(${rgb},0.4)`)
+      g.addColorStop(1, `rgba(${rgb},0)`)
+      ctx.fillStyle = g
+      ctx.fillRect(ax - r, ay - r, r * 2, r * 2)
+      ctx.fillStyle = `rgb(${rgb})`
+      ctx.beginPath()
+      ctx.arc(ax, ay, 2.6 * v.s, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    if (alarm === 'blink') {
+      // Ring som brer seg utover – lett å få øye på i sidesynet
+      const wave = (input.time * 1.4) % 1
+      ctx.strokeStyle = `rgba(${rgb},${0.7 * (1 - wave)})`
+      ctx.lineWidth = 1.6 * v.s
+      ctx.beginPath()
+      ctx.arc(ax, ay, (5 + wave * 20) * v.s, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+  }
+
+  // Aktive dilemmaer: et lite merke over korktavla som viser at noe venter
+  if (input.notes.length > 0) {
+    const [nx, ny] = P(v, 2.84, 0, 2.06)
+    const pulse = 1 + Math.max(0, Math.sin(input.time * 3.2)) * 0.14
+    const urgent = input.notes.some((n) => n.followUp)
+    ctx.save()
+    ctx.translate(nx, ny)
+    ctx.scale(pulse, pulse)
+    ctx.shadowColor = 'rgba(28,37,38,0.35)'
+    ctx.shadowBlur = 5 * v.s
+    ctx.fillStyle = urgent ? '#B4432F' : '#D97736'
+    ctx.beginPath()
+    ctx.arc(0, 0, 8.5 * v.s, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.shadowColor = 'transparent'
+    ctx.fillStyle = '#FFFFFF'
+    ctx.font = `800 ${10.5 * v.s}px "JetBrains Mono Variable", monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(String(input.notes.length), 0, 0.6 * v.s)
+    ctx.restore()
+  }
+
+  // Telyset på lindrende enhet gir et lite, varmt skjær
+  if (input.wardType === 'lindrende') {
+    const [cx, cy] = P(v, 6.875, 5.015, 0.58)
+    const r = 26 * v.s
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r)
+    g.addColorStop(0, 'rgba(255,205,120,0.5)')
+    g.addColorStop(1, 'rgba(255,205,120,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2)
+  }
+
+  // Statusbobler
   for (const a of input.crew.agents) {
     if (!a.bubble) continue
     const [sx, sy] = P(v, a.x, a.y, 0)
     drawBubble(ctx, v, sx, sy + (a.sitting ? 7 * v.s : 0), a.bubble, a.bubbleAlpha * a.alpha, input.time)
   }
-  // Beboerens humør
+  // Beboerens humør (bare når hen sitter i stolen)
   const mood = Math.sin(input.time * 0.35)
-  if (mood > 0.55) {
+  if (input.residentPresent && mood > 0.55) {
     const [rx, ry] = P(v, 9.02, 4.82, 0.34)
     const icon = input.trivsel >= 60 ? 'hjerte' : input.trivsel < 35 ? 'stress' : 'kaffe'
     drawBubble(ctx, v, rx, ry + 7 * v.s, icon, Math.min(1, (mood - 0.55) * 6), input.time)
