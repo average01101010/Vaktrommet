@@ -125,7 +125,7 @@ export function RotationSheet({ open, onClose }: { open: boolean; onClose: () =>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          maxLength={28}
+          maxLength={BALANCE.wardNameMax}
           placeholder={chosen.name}
           className="mt-1 w-full rounded-xl border border-blekk/15 bg-papir px-3.5 py-2.5 text-[15px] font-bold outline-none focus:border-skog"
         />

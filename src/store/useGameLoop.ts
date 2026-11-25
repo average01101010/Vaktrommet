@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { cancelAwayNotifications, scheduleAwayNotifications } from '@/services/notifications'
 import { flushSave, useGame } from './gameStore'
 
 /**
@@ -14,10 +15,12 @@ export function useGameLoop(): void {
 
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
+        cancelAwayNotifications()
         tick()
         timer ??= setInterval(tick, 1000)
       } else {
         flushSave()
+        scheduleAwayNotifications(useGame.getState().game, Date.now())
         if (timer) {
           clearInterval(timer)
           timer = null
@@ -30,6 +33,7 @@ export function useGameLoop(): void {
       if (timer) clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('pagehide', flushSave)
+      cancelAwayNotifications()
       flushSave()
     }
   }, [])

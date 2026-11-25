@@ -2,9 +2,10 @@ import { create } from 'zustand'
 import { persist, type PersistStorage } from 'zustand/middleware'
 import { SHOP_BY_ID } from '@/data/economy'
 import * as actions from '@/engine/actions'
-import type { ActionResult } from '@/engine/actions'
+import type { ActionResult, ProfileInput, SaveSummary } from '@/engine/actions'
 import { migrateGameState } from '@/engine/migrate'
 import { catchUp, createInitialState, STATE_VERSION } from '@/engine/simulation'
+import { cue } from '@/lib/feedback'
 import { getAdProvider, getPurchaseProvider } from '@/services/monetization'
 import type {
   AdPlacement,
@@ -12,7 +13,7 @@ import type {
   DilemmaResolution,
   GameState,
   OfflineReport,
-  PlayerProfile,
+  Settings,
   ShiftId,
   SkillId,
   StaffId,
@@ -46,7 +47,12 @@ interface GameStore {
   dismissToast: (id: number) => void
   resetGame: () => void
 
-  setProfile: (profile: Partial<PlayerProfile>) => void
+  updateProfile: (input: ProfileInput) => boolean
+  updateSettings: (patch: Partial<Settings>) => void
+  /** Gjeldende spill som lagringsfil (JSON). */
+  exportSave: () => string
+  importSave: (json: string) => SaveSummary | null
+  restorePurchases: () => Promise<string[]>
   assign: (shift: ShiftId, slot: number, staffId: StaffId) => boolean
   assignFirstFree: (shift: ShiftId, staffId: StaffId) => boolean
   unassign: (shift: ShiftId, slot: number) => void
@@ -166,6 +172,7 @@ export const useGame = create<GameStore>()(
           return null
         }
         set({ game: result.state })
+        cue(result.state.settings, 'tap')
         // Spillerhandlinger lagres med en gang – ikke bare ved neste faste skriving.
         flushSave()
         return result
@@ -190,16 +197,35 @@ export const useGame = create<GameStore>()(
         toast: (text, tone = 'info') => {
           const id = ++toastId
           set((s) => ({ toasts: [...s.toasts.slice(-2), { id, text, tone }] }))
+          if (tone !== 'info') cue(get().game.settings, tone)
           setTimeout(() => get().dismissToast(id), 3200)
         },
         dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
         resetGame: () => {
-          set({ game: createInitialState(Date.now()), offlineReport: null })
-          flushSave()
+          if (run(actions.resetGame(get().game, Date.now()))) set({ offlineReport: null })
         },
 
-        setProfile: (profile) => void run(actions.setProfile(get().game, profile)),
+        updateProfile: (input) => run(actions.updateProfile(get().game, input)) !== null,
+        updateSettings: (patch) => void run(actions.updateSettings(get().game, patch)),
+        exportSave: () => actions.exportSave(get().game, Date.now()),
+        importSave: (json) => {
+          const r = run(actions.importSave(get().game, json, Date.now()))
+          if (!r) return null
+          set({ offlineReport: null })
+          get().toast(`Lagringen for «${r.summary.wardName}» er lest inn.`, 'good')
+          return r.summary
+        },
+        restorePurchases: async () => {
+          const owned = await getPurchaseProvider().restore().catch(() => [] as string[])
+          const r = run(actions.restorePurchases(get().game, owned, Date.now()))
+          const restored = r?.restored ?? []
+          get().toast(
+            restored.length > 0 ? 'Medlemskapene dine er gjenopprettet.' : 'Fant ingen kjøp å gjenopprette.',
+            restored.length > 0 ? 'good' : 'info',
+          )
+          return restored
+        },
 
         assign: (shift, slot, staffId) => run(actions.assignStaff(get().game, shift, slot, staffId)) !== null,
         assignFirstFree: (shift, staffId) => run(actions.assignToFirstFree(get().game, shift, staffId)) !== null,

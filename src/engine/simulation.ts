@@ -10,7 +10,9 @@ import type {
   GameState,
   Modifiers,
   OfflineReport,
+  LifetimeStats,
   PrestigeState,
+  Settings,
   ShiftAccumulator,
   ShiftEvaluation,
   SkillId,
@@ -36,7 +38,7 @@ import {
 } from './time'
 
 /** Versjon av lagringsformatet. Økes når GameState endrer form – se engine/migrate. */
-export const STATE_VERSION = 2
+export const STATE_VERSION = 3
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
 
@@ -55,11 +57,23 @@ export const newAccumulator = (minute: number): ShiftAccumulator => ({
   synergyIds: [],
 })
 
+export const emptyLifetime = (): LifetimeStats => ({
+  budget: 0,
+  fagpoeng: 0,
+  shiftsCompleted: 0,
+  dilemmasResolved: 0,
+  sickDays: 0,
+  recruits: 0,
+})
+
+export const defaultSettings = (): Settings => ({ sound: true, haptics: true, notifications: false })
+
 export const defaultPrestige = (): PrestigeState => ({
   rotations: 0,
   renomme: 0,
   fagboker: Object.fromEntries(WARD_TYPE_ORDER.map((id) => [id, 0])) as Record<WardTypeId, number>,
   bankedDrift: 0,
+  bankedLifetime: emptyLifetime(),
   history: [],
 })
 
@@ -82,7 +96,7 @@ export function createInitialState(nowMs: number, seed: number = nowMs): GameSta
       fagpoeng: BALANCE.start.fagpoeng,
       kaffekopper: BALANCE.start.kaffekopper,
     },
-    lifetime: { budget: 0, fagpoeng: 0, shiftsCompleted: 0, dilemmasResolved: 0, sickDays: 0, recruits: 0 },
+    lifetime: emptyLifetime(),
     ward: { trivsel: BALANCE.start.trivsel, avvik: 0, avvikProgress: 0, residentCounter: 0 },
     wardType: 'sykehjem',
     residents: [],
@@ -121,6 +135,7 @@ export function createInitialState(nowMs: number, seed: number = nowMs): GameSta
       adsWatched: 0,
       purchases: [],
     },
+    settings: defaultSettings(),
     events: [],
     eventCounter: 0,
   }

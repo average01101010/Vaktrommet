@@ -26,6 +26,16 @@ export interface LifetimeStats {
   recruits: number
 }
 
+/** Spillerens preferanser. Lagres sammen med spillet og følger med ved eksport. */
+export interface Settings {
+  /** Lydeffekter ved handlinger. */
+  sound: boolean
+  /** Vibrasjon på mobil. */
+  haptics: boolean
+  /** Varsel når offline-bufferen er full eller et kurs er ferdig. */
+  notifications: boolean
+}
+
 export interface GameEvent {
   id: number
   /** Spillminutt. */
@@ -75,6 +85,7 @@ export interface GameState {
   quality: QualityStats
   inspection: InspectionState
   monetization: MonetizationState
+  settings: Settings
   events: GameEvent[]
   eventCounter: number
 }

@@ -9,6 +9,8 @@ export interface PurchaseProvider {
   readonly isDemo: boolean
   /** Returnerer en kvittering som serveren kan validere, eller null ved avbrudd. */
   purchase(item: ShopItemDef): Promise<{ receipt: string } | null>
+  /** «Gjenopprett kjøp»: vare-id-ene butikken sier at spilleren eier. */
+  restore(): Promise<string[]>
 }
 
 export interface RewardedAdProvider {
@@ -20,6 +22,8 @@ export interface RewardedAdProvider {
 const demoPurchases: PurchaseProvider = {
   isDemo: true,
   purchase: async (item) => ({ receipt: `demo-${item.id}-${Date.now()}` }),
+  // Demo-butikken har ingen konto å slå opp i; da gjelder bare kjøpsloggen i lagringen.
+  restore: async () => [],
 }
 
 let purchaseProvider: PurchaseProvider = demoPurchases

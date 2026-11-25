@@ -127,3 +127,53 @@ export function Amount({
     </span>
   )
 }
+
+/** Av/på-bryter med ledetekst. */
+export function Toggle({
+  checked,
+  onChange,
+  icon,
+  label,
+  description,
+  disabled = false,
+  id,
+}: {
+  checked: boolean
+  onChange: (next: boolean) => void
+  icon: IconName
+  label: string
+  description?: ReactNode
+  disabled?: boolean
+  id: string
+}) {
+  return (
+    <div className="flex items-start gap-3 px-3.5 py-3">
+      <span className={cx('mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl', checked ? 'bg-skog-soft text-skog' : 'bg-blekk/[0.06] text-blekk-3')}>
+        <Icon name={icon} size={17} />
+      </span>
+      <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
+        <span className="block text-[14px] leading-tight font-extrabold">{label}</span>
+        {description && <span className="mt-0.5 block text-[12px] leading-snug text-blekk-2">{description}</span>}
+      </label>
+      <button
+        id={id}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={cx(
+          'relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors duration-200 disabled:opacity-40',
+          checked ? 'bg-skog' : 'bg-blekk/20',
+        )}
+      >
+        <span
+          className={cx(
+            'absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-papir shadow-[0_1px_3px_rgb(28_37_38/0.35)] transition-transform duration-200',
+            checked && 'translate-x-5',
+          )}
+        />
+      </button>
+    </div>
+  )
+}

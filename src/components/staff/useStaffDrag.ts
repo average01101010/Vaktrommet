@@ -1,4 +1,6 @@
 import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { haptic } from '@/lib/feedback'
+import { useGame } from '@/store/gameStore'
 import type { ShiftId, StaffId } from '@/types'
 
 export interface SlotRef {
@@ -47,7 +49,7 @@ export function useStaffDrag(onDrop: (staffId: StaffId, target: SlotRef | null, 
     const begin = (x: number, y: number) => {
       active = true
       setDrag({ staffId, x, y, over: slotUnder(x, y) })
-      if (!isMouse) navigator.vibrate?.(8)
+      if (!isMouse) haptic(useGame.getState().game.settings)
     }
     const cleanup = () => {
       window.clearTimeout(timer)

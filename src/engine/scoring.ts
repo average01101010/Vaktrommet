@@ -1,5 +1,5 @@
 import { BALANCE } from '@/data/balance'
-import type { GameState, QualityStats } from '@/types'
+import type { GameState, LifetimeStats, QualityStats } from '@/types'
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
@@ -21,6 +21,20 @@ export function wardDriftScore(state: GameState): number {
  * alt som er banket fra avdelinger du har overlevert.
  */
 export const driftScore = (state: GameState): number => state.prestige.bankedDrift + wardDriftScore(state)
+
+/** Statistikk for hele karrieren: overleverte avdelinger pluss den du leder nå. */
+export function careerStats(state: GameState): LifetimeStats {
+  const banked = state.prestige.bankedLifetime
+  const now = state.lifetime
+  return {
+    budget: banked.budget + now.budget,
+    fagpoeng: banked.fagpoeng + now.fagpoeng,
+    shiftsCompleted: banked.shiftsCompleted + now.shiftsCompleted,
+    dilemmasResolved: banked.dilemmasResolved + now.dilemmasResolved,
+    sickDays: banked.sickDays + now.sickDays,
+    recruits: banked.recruits + now.recruits,
+  }
+}
 
 export interface QualityBreakdown {
   /** 0–1000. */

@@ -35,6 +35,7 @@ src/
 ├─ store/       Zustand-store med debouncet lagring + spill-loop
 ├─ services/    Supabase-klient, toppliste, kroker for betaling og rewarded video
 └─ components/  layout/ · ward/ (isometrisk canvas, beboere, rotasjon) · staff/ · upgrades/ · league/
+                · profile/ (Profil & Innstillinger: identitet, karriere, sikkerhetskopi, preferanser)
 supabase/migrations/   Databaseskjema (ikke kjørt automatisk)
 ```
 
@@ -68,6 +69,20 @@ Spillet lagres i `localStorage`, høyst hvert femte sekund og med en gang etter 
 og når fanen skjules. Ved innlasting går lagringen alltid gjennom `migrateGameState`, som fyller
 nye felter med standardverdier. Når `GameState` endrer form: øk `STATE_VERSION`, legg
 versjonsspesifikke grep i `engine/migrate.ts`, og utvid migreringstesten.
+
+## Profil, sikkerhetskopi og innstillinger
+
+Trykk på avdelingsnavnet i toppfeltet for **Profil & Innstillinger**:
+
+- **Profil:** avdelingsnavn (3–32 tegn), fylke og yrkesgruppe, renommé og fagbøker, og tall for hele karrieren.
+- **Konto:** eksport og import av lagringen som JSON (`exportSave` / `parseSave` / `importSave` i
+  `engine/actions.ts`). Import godtar eksportfila, rå `localStorage`-verdi og eldre versjoner, og viser
+  et sammendrag før noe erstattes. Nullstilling krever to bekreftelser og beholder innstillinger og medlemskap.
+- **Innstillinger:** lyd, haptikk og varsler ligger i `GameState.settings`. Varsler er lokale og virker
+  bare mens nettleseren holder appen i live i bakgrunnen – push fra server er ikke bygget.
+
+Personvern og brukervilkår ligger i `src/data/legal.ts` og er merket som **utkast**. Sett
+`VITE_FEEDBACK_EMAIL` for å få en «Åpne i e-post»-knapp i tilbakemeldingsskjemaet.
 
 ## Supabase (valgfritt)
 

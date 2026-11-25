@@ -5,7 +5,7 @@
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
-  ward_name text not null check (char_length(ward_name) between 1 and 28),
+  ward_name text not null check (char_length(ward_name) between 3 and 32),
   county text not null,
   profession text not null check (profession in ('sykepleier', 'vernepleier', 'helsefagarbeider', 'assistent', 'student', 'annet')),
   created_at timestamptz not null default now(),

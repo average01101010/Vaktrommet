@@ -5,7 +5,7 @@ import type { Profession, Rarity, ShiftId } from '@/types'
  * klient og server (validering) alltid regner likt.
  */
 export const BALANCE = {
-  version: 2,
+  version: 3,
 
   // ---- Tid ----
   /** Ett reelt sekund = fire spillminutter → én vakt (8 t) varer to minutter. */
@@ -21,6 +21,10 @@ export const BALANCE = {
   offlineCapHoursVip: 24,
   /** Fravær kortere enn dette vises ikke som offline-rapport. */
   offlineReportMinMs: 60_000,
+
+  // ---- Profil ----
+  wardNameMin: 3,
+  wardNameMax: 32,
 
   // ---- Avdeling ----
   baseBeds: 8,

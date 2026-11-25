@@ -1,4 +1,5 @@
 import { BALANCE, INSPECTION_TIERS, RARITY, RARITY_ORDER, SHIFT_ORDER } from '@/data/balance'
+import { COUNTIES, PLAYER_PROFESSIONS } from '@/data/league'
 import { emptyUpgradeLevels } from '@/data/upgrades'
 import { WARD_TYPES } from '@/data/wards'
 import { DILEMMA_BY_ID } from '@/data/dilemmas'
@@ -9,11 +10,12 @@ import type {
   DilemmaResolution,
   Effect,
   GameState,
-  PlayerProfile,
+  PlayerProfession,
   Rarity,
   Requirement,
   Reward,
   Roster,
+  Settings,
   ShiftId,
   SkillId,
   StaffId,
@@ -22,14 +24,25 @@ import type {
   UpgradeId,
   WardTypeId,
 } from '@/types'
+import { migrateGameState } from './migrate'
 import { maxSkillLevelFor, modifiersFor, slotsFor } from './modifiers'
 import { syncResidents } from './residents'
 import { qualityIndex, wardDriftScore } from './scoring'
 import { rand } from './rng'
-import { cloneState, inspectionAverage, newAccumulator, pushEvent, simulate, syncTier } from './simulation'
+import {
+  cloneState,
+  createInitialState,
+  emptyLifetime,
+  inspectionAverage,
+  newAccumulator,
+  pushEvent,
+  simulate,
+  STATE_VERSION,
+  syncTier,
+} from './simulation'
 import { generateStaff } from './staffFactory'
 import { evaluateShift, isAvailable, shiftCountOf } from './synergy'
-import { MIN_PER_HOUR, realMsToGameMinutes, shiftAt } from './time'
+import { dayNumber, MIN_PER_HOUR, realMsToGameMinutes, seasonId, shiftAt } from './time'
 
 /**
  * Alle spillerhandlinger som rene funksjoner: (state, …) → ny state eller feil.
@@ -509,10 +522,192 @@ export function markShiftReportSeen(state: GameState): ActionResult {
   return { ok: true, state: d }
 }
 
-export function setProfile(state: GameState, profile: Partial<PlayerProfile>): ActionResult {
+// ---------------------------------------------------------------------------
+// Profil og innstillinger
+// ---------------------------------------------------------------------------
+
+/** Returnerer en feilmelding hvis avdelingsnavnet ikke er gyldig, ellers null. */
+export function validateWardName(name: string): string | null {
+  const length = [...name.trim()].length
+  if (length < BALANCE.wardNameMin) return `Avdelingsnavnet må ha minst ${BALANCE.wardNameMin} tegn.`
+  if (length > BALANCE.wardNameMax) return `Avdelingsnavnet kan ha høyst ${BALANCE.wardNameMax} tegn.`
+  return null
+}
+
+export interface ProfileInput {
+  wardName: string
+  county: string
+  profession: PlayerProfession
+}
+
+/** Lagrer avdelingsnavn, fylke og yrkesgruppe. Fullfører også onboarding første gang. */
+export function updateProfile(state: GameState, input: ProfileInput): ActionResult {
+  const nameError = validateWardName(input.wardName)
+  if (nameError) return fail(nameError)
+  if (!COUNTIES.includes(input.county)) return fail('Velg et fylke fra lista.')
+  if (!(input.profession in PLAYER_PROFESSIONS)) return fail('Velg en yrkesgruppe fra lista.')
   const d = cloneState(state)
-  d.profile = { ...d.profile, ...profile }
+  d.profile = { wardName: input.wardName.trim(), county: input.county, profession: input.profession, onboarded: true }
   return { ok: true, state: d }
+}
+
+const SETTING_KEYS: (keyof Settings)[] = ['sound', 'haptics', 'notifications']
+
+export function updateSettings(state: GameState, patch: Partial<Settings>): ActionResult {
+  const d = cloneState(state)
+  for (const key of SETTING_KEYS) {
+    const value = patch[key]
+    if (typeof value === 'boolean') d.settings[key] = value
+  }
+  return { ok: true, state: d }
+}
+
+// ---------------------------------------------------------------------------
+// Eksport, import og nullstilling av lagring
+// ---------------------------------------------------------------------------
+
+export const SAVE_FILE_APP = 'vaktrommet'
+const SAVE_MAX_CHARS = 5_000_000
+
+/** Lagringsfilen betatestere kan kopiere, laste ned og sende over. */
+export interface SaveFile {
+  app: typeof SAVE_FILE_APP
+  formatVersion: number
+  exportedAt: number
+  game: GameState
+}
+
+export function exportSave(state: GameState, nowMs: number): string {
+  const file: SaveFile = { app: SAVE_FILE_APP, formatVersion: STATE_VERSION, exportedAt: nowMs, game: state }
+  return JSON.stringify(file)
+}
+
+/** Det viktigste om en lagring – vises før spilleren bekrefter en import. */
+export interface SaveSummary {
+  wardName: string
+  wardType: WardTypeId
+  tier: number
+  day: number
+  rotations: number
+  staff: number
+  /** Formatversjonen fila hadde før den ble løftet til dagens. */
+  sourceVersion: number
+  exportedAt: number | null
+}
+
+export type ParsedSave = { ok: true; game: GameState; summary: SaveSummary } | { ok: false; reason: string }
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/**
+ * Leser og validerer en lagringsfil uten å endre noe. Godtar eksportformatet,
+ * rå localStorage-verdi ({ state: { game } }) og en ren GameState, og løfter
+ * eldre versjoner med migrateGameState.
+ */
+export function parseSave(json: string, nowMs: number): ParsedSave {
+  const text = json.trim()
+  if (!text) return { ok: false, reason: 'Lim inn lagringen først.' }
+  if (text.length > SAVE_MAX_CHARS) return { ok: false, reason: 'Fila er for stor til å være en Vaktrommet-lagring.' }
+  let data: unknown
+  try {
+    data = JSON.parse(text)
+  } catch {
+    return { ok: false, reason: 'Dette er ikke gyldig JSON. Sjekk at hele teksten ble med.' }
+  }
+  if (!isRecord(data)) return { ok: false, reason: 'Fant ingen lagring i teksten.' }
+
+  let raw: unknown = data
+  let exportedAt: number | null = null
+  if (data.app === SAVE_FILE_APP && isRecord(data.game)) {
+    raw = data.game
+    exportedAt = typeof data.exportedAt === 'number' ? data.exportedAt : null
+  } else if (isRecord(data.state) && isRecord(data.state.game)) {
+    raw = data.state.game
+  }
+
+  if (
+    !isRecord(raw) ||
+    !isRecord(raw.resources) ||
+    typeof raw.resources.budget !== 'number' ||
+    !isRecord(raw.staff) ||
+    Object.keys(raw.staff).length === 0 ||
+    typeof raw.minute !== 'number'
+  ) {
+    return { ok: false, reason: 'Teksten ser ikke ut som en Vaktrommet-lagring.' }
+  }
+  const sourceVersion = typeof raw.version === 'number' ? raw.version : 1
+  if (sourceVersion > STATE_VERSION) {
+    return { ok: false, reason: 'Lagringen kommer fra en nyere versjon av spillet. Oppdater og prøv igjen.' }
+  }
+
+  const game = migrateGameState(raw, nowMs)
+  return {
+    ok: true,
+    game,
+    summary: {
+      wardName: game.profile.wardName,
+      wardType: game.wardType,
+      tier: game.tier,
+      day: dayNumber(game.minute),
+      rotations: game.prestige.rotations,
+      staff: game.staffOrder.length,
+      sourceVersion,
+      exportedAt,
+    },
+  }
+}
+
+/** Erstatter spillet med en importert lagring. */
+export function importSave(_state: GameState, json: string, nowMs: number): ActionResult<{ summary: SaveSummary }> {
+  const parsed = parseSave(json, nowMs)
+  if (!parsed.ok) return fail(parsed.reason)
+  return { ok: true, state: parsed.game, summary: parsed.summary }
+}
+
+/**
+ * Starter helt på nytt. Innstillinger og betalte medlemskap (Pluss, sesongens
+ * pass og kjøpsloggen) beholdes; alt annet – også Kaffekopper – nullstilles.
+ */
+export function resetGame(state: GameState, nowMs: number): ActionResult {
+  const d = createInitialState(nowMs)
+  d.settings = { ...state.settings }
+  d.profile = { ...state.profile, onboarded: false }
+  d.monetization.vip = state.monetization.vip
+  d.monetization.purchases = state.monetization.purchases.map((p) => ({ ...p }))
+  if (state.monetization.seasonPass.seasonId === d.monetization.seasonPass.seasonId) {
+    d.monetization.seasonPass.premium = state.monetization.seasonPass.premium
+  }
+  return { ok: true, state: d }
+}
+
+/**
+ * Gjenoppretter medlemskap ut fra kjøp butikken kjenner til (`ownedItemIds`)
+ * og kjøpsloggen i lagringen. Forbruksvarer som Kaffekopper gjenopprettes ikke.
+ */
+export function restorePurchases(
+  state: GameState,
+  ownedItemIds: string[],
+  nowMs: number,
+): ActionResult<{ restored: string[] }> {
+  const d = cloneState(state)
+  const restored: string[] = []
+  const season = seasonId(nowMs)
+  const logged = (kind: string, inSeasonOnly: boolean) =>
+    state.monetization.purchases.some(
+      (p) => SHOP_BY_ID[p.itemId]?.kind === kind && (!inSeasonOnly || seasonId(p.at) === season),
+    )
+  const owned = (kind: string) => ownedItemIds.some((id) => SHOP_BY_ID[id]?.kind === kind)
+
+  if (!d.monetization.vip && (owned('vip') || logged('vip', false))) {
+    d.monetization.vip = true
+    restored.push('vip')
+  }
+  const pass = d.monetization.seasonPass
+  if (!pass.premium && pass.seasonId === season && (owned('tilsynspass') || logged('tilsynspass', true))) {
+    pass.premium = true
+    restored.push('tilsynspass')
+  }
+  return { ok: true, state: d, restored }
 }
 
 // ---------------------------------------------------------------------------
@@ -566,10 +761,18 @@ export function rotateWard(state: GameState, choice: RotationChoice): ActionResu
   if (keep.length > BALANCE.rotationKeepStaff) return fail(`Du kan ta med inntil ${BALANCE.rotationKeepStaff} ansatte.`)
   if (keep.some((id) => !state.staff[id])) return fail('Fant ikke alle de valgte ansatte.')
 
+  const name = choice.wardName?.trim()
+  if (name) {
+    const nameError = validateWardName(name)
+    if (nameError) return fail(nameError)
+  }
+
   const preview = rotationPreview(state)
   const d = cloneState(state)
 
   // ---- Det du tar med deg ----
+  const banked = d.prestige.bankedLifetime
+  for (const key of Object.keys(banked) as (keyof typeof banked)[]) banked[key] += state.lifetime[key]
   d.prestige.rotations++
   d.prestige.renomme += preview.renommeGain
   d.prestige.fagboker[state.wardType] = preview.fagbok.level
@@ -585,11 +788,10 @@ export function rotateWard(state: GameState, choice: RotationChoice): ActionResu
 
   // ---- Ny avdeling ----
   d.wardType = choice.wardType
-  const name = choice.wardName?.trim()
-  if (name) d.profile.wardName = name.slice(0, 28)
+  if (name) d.profile.wardName = name
   d.resources.budget = BALANCE.start.budget
   d.resources.fagpoeng = BALANCE.start.fagpoeng
-  d.lifetime = { budget: 0, fagpoeng: 0, shiftsCompleted: 0, dilemmasResolved: 0, sickDays: 0, recruits: 0 }
+  d.lifetime = emptyLifetime()
   d.ward.trivsel = BALANCE.start.trivsel
   d.ward.avvik = 0
   d.ward.avvikProgress = 0

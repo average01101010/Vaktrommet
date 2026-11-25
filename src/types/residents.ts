@@ -1,3 +1,4 @@
+import type { LifetimeStats } from './game'
 import type { ShiftId } from './roster'
 import type { SkillId } from './staff'
 import type { ModifierDelta } from './upgrades'
@@ -74,5 +75,7 @@ export interface PrestigeState {
   fagboker: Record<WardTypeId, number>
   /** Driftspoeng fra tidligere avdelinger (teller i Driftsligaen). */
   bankedDrift: number
+  /** Statistikk fra tidligere avdelinger. Karrieretall = dette + `lifetime` for avdelingen du leder nå. */
+  bankedLifetime: LifetimeStats
   history: CompletedWard[]
 }

@@ -11,19 +11,29 @@ import {
   buyUpgrade,
   canRotate,
   claimInspectionTier,
+  exportSave,
+  grantPurchase,
+  importSave,
+  parseSave,
   recruit,
+  resetGame,
   resolveDilemma,
+  restorePurchases,
   rotateWard,
   rotationPreview,
   startCourse,
   timeSkip,
   unassignSlot,
+  updateProfile,
+  updateSettings,
+  validateWardName,
 } from './actions'
 import { migrateGameState } from './migrate'
 import { bedsFor, maxSkillLevelFor, modifiersFor, tierThreshold } from './modifiers'
+import { upcomingNotifications } from './notifications'
 import { computeDemand, syncResidents } from './residents'
-import { driftScore, qualityIndex } from './scoring'
-import { catchUp, createInitialState, inspectionAverage, simulate, STATE_VERSION } from './simulation'
+import { careerStats, driftScore, qualityIndex } from './scoring'
+import { catchUp, createInitialState, defaultSettings, inspectionAverage, simulate, STATE_VERSION } from './simulation'
 import { emptySkills } from './staffFactory'
 import { evaluateShift } from './synergy'
 import { liveMinute, shiftAt, STEP_MS } from './time'
@@ -604,6 +614,7 @@ describe('trygg lagringsmigrering', () => {
     delete s.ward.residentCounter
     delete s.shift.current.focusSum
     delete s.shift.last.inspectionScore
+    delete s.settings
     return s
   }
 
@@ -629,6 +640,8 @@ describe('trygg lagringsmigrering', () => {
     expect(m.inspection).toEqual({ weekKey: m.inspection.weekKey, scoreSum: 0, shifts: 0, claimed: [] })
     expect(m.shift.last?.inspectionScore).toBe(0)
     expect(m.shift.current.focusSum).toBe(0)
+    expect(m.settings).toEqual(defaultSettings())
+    expect(m.prestige.bankedLifetime.shiftsCompleted).toBe(0)
 
     // Tid: minuttet ligger på et helt steg, og gamle felter er borte.
     expect(m.minute).toBe(14_640)
@@ -725,5 +738,204 @@ describe('handlinger og innhold', () => {
     expect(change.admitted).toHaveLength(0)
     expect(change.discharged).toHaveLength(0)
     expect(d.residents).toEqual(s.residents)
+  })
+})
+
+describe('profil og innstillinger', () => {
+  it('validerer avdelingsnavn på 3–32 tegn', () => {
+    expect(validateWardName('AB')).not.toBeNull()
+    expect(validateWardName('  AB  ')).not.toBeNull()
+    expect(validateWardName('Åsly')).toBeNull()
+    expect(validateWardName('x'.repeat(32))).toBeNull()
+    expect(validateWardName('x'.repeat(33))).not.toBeNull()
+  })
+
+  it('lagrer navn, fylke og yrkesgruppe og fullfører onboarding', () => {
+    const s = fresh()
+    expect(s.profile.onboarded).toBe(false)
+    const r = updateProfile(s, { wardName: '  Fjordgløtt, 2. etasje ', county: 'Vestland', profession: 'vernepleier' })
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.state.profile).toEqual({ wardName: 'Fjordgløtt, 2. etasje', county: 'Vestland', profession: 'vernepleier', onboarded: true })
+    expect(s.profile.wardName).toBe('Solsiden, avd. 2') // input urørt
+  })
+
+  it('avviser ugyldig navn, fylke og yrkesgruppe', () => {
+    const s = fresh()
+    const ok = { wardName: 'Solsiden', county: 'Oslo', profession: 'sykepleier' as const }
+    expect(updateProfile(s, { ...ok, wardName: 'ab' }).ok).toBe(false)
+    expect(updateProfile(s, { ...ok, wardName: 'x'.repeat(40) }).ok).toBe(false)
+    expect(updateProfile(s, { ...ok, county: 'Atlantis' }).ok).toBe(false)
+    expect(updateProfile(s, { ...ok, profession: 'kirurg' as never }).ok).toBe(false)
+    expect(rotateWard({ ...fresh(), tier: 5 }, { wardType: 'demens', keepStaff: [], wardName: 'x' }).ok).toBe(false)
+  })
+
+  it('endrer bare kjente innstillinger', () => {
+    const s = fresh()
+    expect(s.settings).toEqual(defaultSettings())
+    const r = updateSettings(s, { sound: false, notifications: true, ...({ haptics: 'ja', tull: true } as object) })
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.state.settings).toEqual({ sound: false, haptics: true, notifications: true })
+    expect('tull' in r.state.settings).toBe(false)
+  })
+
+  it('karrieretall summerer overleverte avdelinger og den nåværende', () => {
+    const s = simulate(fresh(), 3 * DAY).state
+    s.tier = 5
+    s.lifetime.dilemmasResolved = 7
+    s.lifetime.recruits = 4
+    const before = careerStats(s)
+    const r = rotateWard(s, { wardType: 'korttid', keepStaff: [] })
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.state.lifetime.shiftsCompleted).toBe(0)
+    expect(careerStats(r.state)).toEqual(before)
+    const later = simulate(r.state, 2 * DAY).state
+    expect(careerStats(later).shiftsCompleted).toBe(before.shiftsCompleted + 6)
+    expect(careerStats(later).dilemmasResolved).toBe(7)
+  })
+
+  it('planlegger varsel for full buffer og ferdige kurs', () => {
+    const s = fresh()
+    s.resources.fagpoeng = 1000
+    const r = startCourse(s, 's3', 'saarstell')
+    if (!r.ok) throw new Error(r.reason)
+    const plan = upcomingNotifications(r.state, T0)
+    const course = plan.find((n) => n.id === 'kurs-s3')!
+    const buffer = plan.find((n) => n.id === 'buffer')!
+    // Kurs fra nivå 1 → 2 varer 16 spilltimer = 4 minutter i sanntid.
+    expect(course.at).toBe(T0 + 4 * 60 * 1000)
+    expect(course.body).toContain('Amina')
+    expect(buffer.at).toBe(T0 + 8 * HOUR)
+    expect(plan[0].id).toBe('kurs-s3')
+
+    r.state.monetization.vip = true
+    expect(upcomingNotifications(r.state, T0).find((n) => n.id === 'buffer')!.at).toBe(T0 + 24 * HOUR)
+    expect(upcomingNotifications(fresh(), T0)).toHaveLength(1)
+  })
+})
+
+describe('eksport og import av lagring', () => {
+  const played = (): GameState => {
+    const s = simulate(fresh(), 4 * DAY).state
+    s.profile = { wardName: 'Betatest, avd. 4', county: 'Troms', profession: 'student', onboarded: true }
+    s.resources.kaffekopper = 61
+    s.settings.sound = false
+    return s
+  }
+
+  it('eksport og import gir nøyaktig samme spill tilbake', () => {
+    const s = played()
+    const json = exportSave(s, T0 + 999)
+    const file = JSON.parse(json)
+    expect(file.app).toBe('vaktrommet')
+    expect(file.formatVersion).toBe(STATE_VERSION)
+
+    const r = importSave(fresh(), json, s.lastTickAt)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.state).toEqual(s)
+    expect(r.summary).toMatchObject({ wardName: 'Betatest, avd. 4', staff: 6, sourceVersion: STATE_VERSION, exportedAt: T0 + 999 })
+  })
+
+  it('godtar rå localStorage-verdi og ren GameState', () => {
+    const s = played()
+    const fromStorage = parseSave(JSON.stringify({ state: { game: s }, version: STATE_VERSION }), s.lastTickAt)
+    const bare = parseSave(JSON.stringify(s), s.lastTickAt)
+    expect(fromStorage.ok && fromStorage.game).toEqual(s)
+    expect(bare.ok && bare.game).toEqual(s)
+  })
+
+  it('løfter en eldre lagring ved import', () => {
+    const old = played() as unknown as Record<string, any>
+    old.version = 1
+    delete old.residents
+    delete old.prestige
+    delete old.wardType
+    delete old.settings
+    const r = parseSave(JSON.stringify(old), T0)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.summary.sourceVersion).toBe(1)
+    expect(r.game.version).toBe(STATE_VERSION)
+    expect(r.game.resources.kaffekopper).toBe(61)
+    expect(r.game.residents).toHaveLength(BALANCE.baseBeds)
+    expect(r.game.settings).toEqual(defaultSettings())
+  })
+
+  it('avviser tekst som ikke er en lagring', () => {
+    const s = fresh()
+    const bad = (text: string) => {
+      const r = importSave(s, text, T0)
+      expect(r.ok, text.slice(0, 30)).toBe(false)
+      return r.ok ? '' : r.reason
+    }
+    expect(bad('   ')).toMatch(/Lim inn/)
+    expect(bad('{"game": ')).toMatch(/gyldig JSON/)
+    expect(bad('[1,2,3]')).toMatch(/Fant ingen/)
+    expect(bad('{"hei": "på deg"}')).toMatch(/ser ikke ut/)
+    expect(bad(JSON.stringify({ app: 'vaktrommet', game: { resources: { budget: 'mye' }, staff: {}, minute: 0 } }))).toMatch(/ser ikke ut/)
+    expect(bad(JSON.stringify({ ...played(), version: STATE_VERSION + 1 }))).toMatch(/nyere versjon/)
+    expect(bad('"' + 'x'.repeat(5_000_001) + '"')).toMatch(/for stor/)
+  })
+
+  it('en importert lagring kan spilles videre', () => {
+    const r = importSave(fresh(), exportSave(played(), T0), T0)
+    if (!r.ok) throw new Error(r.reason)
+    const later = simulate(r.state, 2 * DAY).state
+    expect(later.lifetime.shiftsCompleted).toBe(r.state.lifetime.shiftsCompleted + 6)
+  })
+})
+
+describe('nullstilling og gjenoppretting av kjøp', () => {
+  it('nullstiller spillet, men beholder innstillinger og medlemskap', () => {
+    let s = simulate(fresh(), 6 * DAY).state
+    s.resources.kaffekopper = 400
+    s.settings = { sound: false, haptics: false, notifications: true }
+    s.profile = { wardName: 'Gamle avdeling', county: 'Nordland', profession: 'assistent', onboarded: true }
+    const vip = grantPurchase(s, 'vip', T0)
+    if (!vip.ok) throw new Error(vip.reason)
+    s = vip.state
+
+    const r = resetGame(s, T0 + 5 * HOUR)
+    if (!r.ok) throw new Error(r.reason)
+    const n = r.state
+    expect(n.minute).toBe(0)
+    expect(n.lastTickAt).toBe(T0 + 5 * HOUR)
+    expect(n.resources).toEqual({
+      budget: BALANCE.start.budget,
+      fagpoeng: BALANCE.start.fagpoeng,
+      kaffekopper: BALANCE.start.kaffekopper,
+    })
+    expect(n.lifetime.shiftsCompleted).toBe(0)
+    expect(n.prestige.rotations).toBe(0)
+    expect(n.settings).toEqual({ sound: false, haptics: false, notifications: true })
+    expect(n.profile).toEqual({ wardName: 'Gamle avdeling', county: 'Nordland', profession: 'assistent', onboarded: false })
+    expect(n.monetization.vip).toBe(true)
+    expect(n.monetization.purchases).toHaveLength(1)
+  })
+
+  it('gjenoppretter medlemskap fra kjøpsloggen og fra butikken', () => {
+    const s = fresh()
+    expect(restorePurchases(s, [], T0)).toMatchObject({ ok: true, restored: [] })
+
+    const logged = structuredClone(s)
+    logged.monetization.purchases = [
+      { itemId: 'vip', at: T0 - 90 * 24 * HOUR },
+      { itemId: 'tilsynspass', at: T0 - 1000 },
+      { itemId: 'kaffe_m', at: T0 - 500 },
+    ]
+    const a = restorePurchases(logged, [], T0)
+    if (!a.ok) throw new Error(a.reason)
+    expect(a.restored).toEqual(['vip', 'tilsynspass'])
+    expect(a.state.monetization.vip).toBe(true)
+    expect(a.state.monetization.seasonPass.premium).toBe(true)
+    expect(a.state.resources.kaffekopper).toBe(s.resources.kaffekopper) // forbruksvarer gjenopprettes ikke
+
+    // Et pass kjøpt i en tidligere sesong gjelder ikke denne.
+    const oldPass = structuredClone(s)
+    oldPass.monetization.purchases = [{ itemId: 'tilsynspass', at: T0 - 60 * 24 * HOUR }]
+    expect(restorePurchases(oldPass, [], T0)).toMatchObject({ restored: [] })
+
+    // Butikken (betalingsleverandøren) kan også bekrefte eierskap.
+    const b = restorePurchases(s, ['vip'], T0)
+    expect(b).toMatchObject({ restored: ['vip'] })
+    expect(restorePurchases(a.state, ['vip', 'tilsynspass'], T0)).toMatchObject({ restored: [] })
   })
 })

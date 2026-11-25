@@ -4,6 +4,7 @@ import { WARD_TYPES } from '@/data/wards'
 import { cx, fmtCompact } from '@/lib/format'
 import { useGame } from '@/store/gameStore'
 import { useCurrentShift, useLiveMinute, useShiftEvaluation } from '@/store/selectors'
+import { ProfileSettingsSheet } from '../profile/ProfileSettingsSheet'
 import { Icon, type IconName } from '../ui/Icon'
 
 /** Ressurs-brikke som «popper» lett når verdien øker merkbart. */
@@ -43,6 +44,7 @@ export function TopBar() {
   const minute = useGame((s) => s.game.minute)
   const resources = useGame((s) => s.game.resources)
   const kaffe = resources.kaffekopper
+  const [profileOpen, setProfileOpen] = useState(false)
   // Motoren går i faste steg. Tellerne viser det neste steget vil gi, fordelt
   // jevnt over stegtiden – samme rater som motoren selv bruker.
   const ev = useShiftEvaluation(useCurrentShift())
@@ -53,19 +55,30 @@ export function TopBar() {
   return (
     <header className="toppfelt sticky top-0 z-40 bg-skog pt-safe text-krem shadow-[0_6px_18px_-10px_rgb(21_58_48/0.9)]">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 pr-[max(1rem,env(safe-area-inset-right,0px))] pl-[max(1rem,env(safe-area-inset-left,0px))] py-2.5 sm:px-5">
-        <div className="min-w-0">
-          <div className="truncate text-[15px] leading-tight font-extrabold tracking-tight">{wardName}</div>
-          <div className="truncate text-[10.5px] font-bold tracking-[0.1em] text-krem/65 uppercase">
-            <span className="hidden sm:inline">{WARD_TYPES[wardType].name} · Nivå {tier + 1} · </span>
-            {TIERS[tier].name}
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setProfileOpen(true)}
+          aria-label={`Profil og innstillinger for ${wardName}`}
+          className="group -my-1 -ml-1.5 flex min-w-0 items-center gap-2 rounded-xl py-1 pr-1.5 pl-1.5 text-left transition-colors hover:bg-white/10 active:bg-white/15"
+        >
+          <span className="min-w-0">
+            <span className="block truncate text-[15px] leading-tight font-extrabold tracking-tight">{wardName}</span>
+            <span className="flex items-center gap-1.5 text-[10.5px] font-bold tracking-[0.1em] text-krem/65 uppercase">
+              <span className="truncate">
+                <span className="hidden sm:inline">{WARD_TYPES[wardType].name} · Nivå {tier + 1} · </span>
+                {TIERS[tier].name}
+              </span>
+              <Icon name="tannhjul" size={12} className="shrink-0 text-krem/60 transition-colors group-hover:text-krem" />
+            </span>
+          </span>
+        </button>
         <div className="flex shrink-0 items-center gap-1.5">
           <Resource icon="kr" value={budget} label="Driftsbudsjett (kr)" tone="bg-petrol-soft text-petrol" />
           <Resource icon="fag" value={fagpoeng} label="Fagpoeng" tone="bg-skog-soft text-skog" />
           <Resource icon="kaffe" value={kaffe} label="Kaffekopper" tone="bg-rav text-white" />
         </div>
       </div>
+      <ProfileSettingsSheet open={profileOpen} onClose={() => setProfileOpen(false)} />
     </header>
   )
 }

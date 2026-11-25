@@ -123,7 +123,7 @@ export function Toasts() {
 /** Første gang: navn på avdelingen, fylke og yrkesgruppe (brukes i topplistene). */
 export function Onboarding() {
   const profile = useGame((s) => s.game.profile)
-  const setProfile = useGame((s) => s.setProfile)
+  const updateProfile = useGame((s) => s.updateProfile)
   const [wardName, setWardName] = useState(profile.wardName)
   const [county, setCounty] = useState(profile.county)
   const [profession, setProfession] = useState<PlayerProfession>(profile.profession)
@@ -138,7 +138,7 @@ export function Onboarding() {
         className="mt-4 space-y-3.5"
         onSubmit={(e) => {
           e.preventDefault()
-          setProfile({ wardName: wardName.trim() || 'Solsiden, avd. 2', county, profession, onboarded: true })
+          updateProfile({ wardName: wardName.trim() || 'Solsiden, avd. 2', county, profession })
         }}
       >
         <label className="block">
@@ -146,7 +146,7 @@ export function Onboarding() {
           <input
             value={wardName}
             onChange={(e) => setWardName(e.target.value)}
-            maxLength={28}
+            maxLength={BALANCE.wardNameMax}
             className="mt-1 w-full rounded-xl border border-blekk/15 bg-papir px-3.5 py-2.5 text-[15px] font-bold outline-none focus:border-skog"
           />
         </label>
