@@ -79,6 +79,15 @@ Scenen i `src/components/ward/scene/` er et rent 2D-canvas som speiler spilltils
   blomster og konfekt på bordet, og Stille rapport bytter papirbunkene med nettbrett.
 - **Progresjon:** Antall dører følger sengetallet (`doorCountFor` i `scene/layout.ts`), og hver
   avdelingstype har eget interiør og egen palett (`WARD_LOOKS`).
+- **Beboere:** To til fire beboere er oppe på dag og aften (etter sengetallet), i cardigan og tøfler,
+  noen med rullator, prekestol eller rullestol. De har egne plasser og rusleturer i fellesarealet,
+  og går til rommene sine når natta kommer (`Residents` i `scene/agents.ts`).
+- **Mikro-hendelser:** `scene/sceneEvents.ts` har 27 små scener fordelt på avdelingstypene, valgt etter
+  vakt, dekning og trivsel: alt fra potteplante-uhell og nattvandrer på demensavdelingen til
+  legevisitt og ringesnor-rush på sykehjemmet. En hendelse låner beboere og nærmeste ledige pleier,
+  setter ut rekvisitter og gir alt tilbake etterpå. De er ren pynt og rører aldri spilltilstanden.
+  I utviklingsmodus kan en hendelse startes fra konsollen:
+  `__vaktrommetScene.events.force('potteplante')`.
 
 ## Dilemmaene
 

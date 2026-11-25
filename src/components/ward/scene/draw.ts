@@ -1,8 +1,9 @@
 import type { UpgradeLevels, WardTypeId } from '@/types'
-import type { Crew } from './agents'
-import { agentPose, drawBubble, drawFigure, styleFor, type FigureStyle } from './character'
+import { walkerDepth, walkerPoint, type Crew, type ResidentAgent, type Walker } from './agents'
+import { agentPose, drawBubble, drawFigure, residentPose, residentStyle, styleFor } from './character'
 import { box, keyframe, mix, onFloor, onPlaneX, onPlaneY, P, poly, roundRect, shade, WORLD, type View } from './iso'
 import { NOTE_COLORS, WARD_LOOKS, type DoorAlarm, type DoorSlot, type SceneNote, type WardLook } from './layout'
+import type { EventView, SceneProp } from './sceneEvents'
 
 const { W, D, H, SPLIT } = WORLD
 
@@ -22,9 +23,11 @@ export interface SceneInput {
   trivsel: number
   /** Et takkekort fra pårørende virker akkurat nå. */
   thanksActive: boolean
-  /** Beboeren sitter i lenestolen (ikke om natta). */
-  residentPresent: boolean
   crew: Crew
+  /** Beboere og pårørende som er oppe og går. */
+  residents: ResidentAgent[]
+  /** Rekvisitter og stemning fra mikro-hendelsene. */
+  events: EventView
 }
 
 const C = {
@@ -1078,53 +1081,32 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
     const col = '#C8794A'
     box(ctx, v, 8.74, 5.1, 0.4, 0.62, 0.1, 0.2, { top: shade(col, 0.16), left: col, right: shade(col, -0.18) })
   })
-  add(8.3 + 4.85 + 0.2, () => {
-    if (input.residentPresent) {
-      // Beboer i stolen
-      const [sx, sy] = P(v, 9.02, 4.82, 0.34)
-      const resident: FigureStyle = {
-        top: '#7B6A8E',
-        trousers: '#5A5148',
-        skin: '#F0CDB5',
-        hair: '#E3E0DA',
-        hairStyle: 3,
-        accessory: 1,
-        staff: false,
-      }
-      drawFigure(ctx, v, resident, {
-        sx,
-        sy,
-        flip: 1,
-        away: false,
-        sitting: true,
-        walking: false,
-        phase: 1.3,
-        time: t,
-        alpha: 1,
-        tired: input.trivsel < 30,
-      })
-    }
-    // Pledd: over fanget på dagen, brettet over setet og armlenet om natta
-    const [bx, by] = P(v, 9.12, 4.86, input.residentPresent ? 0.44 : 0.42)
-    const wide = input.residentPresent ? 20 : 26
-    ctx.fillStyle = '#E9C46A'
-    roundRect(ctx, bx - (wide / 2 + 1) * v.s, by - 3 * v.s, wide * v.s, (input.residentPresent ? 9 : 12) * v.s, 3 * v.s)
-    ctx.fill()
-    ctx.strokeStyle = 'rgba(180,97,42,0.6)'
-    ctx.lineWidth = 1.2 * v.s
-    ctx.beginPath()
-    for (let i = 0; i < (input.residentPresent ? 2 : 3); i++) {
-      ctx.moveTo(bx - (wide / 2 - 2) * v.s, by + i * 3 * v.s)
-      ctx.lineTo(bx + (wide / 2 - 3) * v.s, by + i * 3 * v.s)
-    }
-    ctx.stroke()
-    if (!input.residentPresent) {
-      // Fliken som henger ned foran setet
-      ctx.fillStyle = '#DDB65A'
-      roundRect(ctx, bx - 2 * v.s, by + 8 * v.s, 12 * v.s, 8 * v.s, 2 * v.s)
+  // Pledd: over fanget på den som sitter der, ellers brettet over setet og armlenet
+  const inChair = input.residents.find((r) => r.sitting && r.node === 'sete' && r.alpha > 0.5)
+  const lap = Boolean(inChair && inChair.persona.elderly && inChair.carry !== 'avis')
+  if (!inChair || lap) {
+    add(8.3 + 4.85 + (lap ? 0.22 : 0.2), () => {
+      const [bx, by] = P(v, 9.12, 4.86, lap ? 0.44 : 0.42)
+      const wide = lap ? 20 : 26
+      ctx.fillStyle = '#E9C46A'
+      roundRect(ctx, bx - (wide / 2 + 1) * v.s, by - 3 * v.s, wide * v.s, (lap ? 9 : 12) * v.s, 3 * v.s)
       ctx.fill()
-    }
-  })
+      ctx.strokeStyle = 'rgba(180,97,42,0.6)'
+      ctx.lineWidth = 1.2 * v.s
+      ctx.beginPath()
+      for (let i = 0; i < (lap ? 2 : 3); i++) {
+        ctx.moveTo(bx - (wide / 2 - 2) * v.s, by + i * 3 * v.s)
+        ctx.lineTo(bx + (wide / 2 - 3) * v.s, by + i * 3 * v.s)
+      }
+      ctx.stroke()
+      if (!lap) {
+        // Fliken som henger ned foran setet
+        ctx.fillStyle = '#DDB65A'
+        roundRect(ctx, bx - 2 * v.s, by + 8 * v.s, 12 * v.s, 8 * v.s, 2 * v.s)
+        ctx.fill()
+      }
+    })
+  }
   add(9.55 + 4.3, () => {
     // Gulvlampe
     box(ctx, v, 9.47, 4.14, 0, 0.2, 0.2, 0.04, { top: '#6E7B7D', left: '#55595A', right: '#484C4D' })
@@ -1166,7 +1148,26 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
     })
   }
 
+  /** En løs pinnestol – står ved minnehylla på demensavdelingen, eller der noen har satt den fra seg. */
+  const woodChair = (x: number, y: number) => {
+    const wood = { top: '#D9B180', left: '#C99D6B', right: '#A97F52' }
+    for (const [lx, ly] of [[0, 0], [0.3, 0], [0, 0.3], [0.3, 0.3]] as const) box(ctx, v, x + lx, y + ly, 0, 0.05, 0.05, 0.42, wood)
+    box(ctx, v, x, y, 0.42, 0.35, 0.35, 0.05, wood)
+    box(ctx, v, x, y, 0.47, 0.05, 0.05, 0.5, wood)
+    box(ctx, v, x, y + 0.3, 0.47, 0.05, 0.05, 0.5, wood)
+    box(ctx, v, x, y, 0.85, 0.05, 0.35, 0.12, wood)
+  }
+
+  if (input.wardType === 'sykehjem') {
+    // Et lite sidebord ved lenestolen: plass til kaffekoppen og avisa
+    add(9.57 + 5.23 + 0.2, () => sideTable(9.42, 5.08, 0.3, '#C99D6B'))
+  }
+
   if (input.wardType === 'demens') {
+    // Gulvplanta ved inngangen, og pinnestolen som har en tendens til å vandre
+    add(5.15 + 5.14 + 0.05, () => plant(ctx, v, 5.15, 5.14, 0.86, t))
+    if (!input.events.chairAway) add(4.72 + 3.45 + 0.2, () => woodChair(4.72, 3.45))
+
     // Hjemmekoselig stue: ekstra lenestol, kaffebord med duk og en minnehylle med bilder og radio
     armchair(6.8, 3.75, 0.75, '#6F8F6A')
     add(7.52 + 4.97 + 0.3, () => {
@@ -1256,6 +1257,58 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
   }
 
   if (input.wardType === 'bofellesskap') {
+    // Kjøkkenkrok langs glassveggen: benk med vask, vannkoker og krus
+    add(6.05, () => {
+      box(ctx, v, 4.68, 0.3, 0, 0.3, 1.15, 0.86, { top: '#F4EEE2', left: '#E6DCC8', right: '#F1E9D8' })
+      onPlaneX(ctx, v, 4.98, 0.86, () => {
+        ctx.strokeStyle = 'rgba(120,96,60,0.35)'
+        ctx.lineWidth = 2.5
+        ctx.strokeRect(36, 8, 50, 70)
+        ctx.strokeRect(90, 8, 50, 70)
+        ctx.fillStyle = '#B5653A'
+        for (const kx of [80, 96]) ctx.fillRect(kx - 2, 36, 4, 12)
+      })
+      box(ctx, v, 4.66, 0.28, 0.86, 0.34, 1.19, 0.05, { top: C.birch, left: shade(C.birch, -0.18), right: shade(C.birch, -0.1) })
+      onFloor(ctx, v, 0.912, () => {
+        // Vask
+        ctx.fillStyle = '#AEB7B9'
+        roundRect(ctx, 472, 40, 22, 30, 4)
+        ctx.fill()
+        ctx.fillStyle = '#8E999B'
+        roundRect(ctx, 475, 43, 16, 24, 3)
+        ctx.fill()
+      })
+      // Vannkoker og krus
+      box(ctx, v, 4.74, 1.26, 0.91, 0.14, 0.14, 0.2, { top: '#3A3E3F', left: '#232728', right: '#2E3233' })
+      box(ctx, v, 4.86, 1.04, 0.91, 0.07, 0.07, 0.08, { top: '#FFFFFF', left: C.rav, right: shade(C.rav, -0.15) })
+      box(ctx, v, 4.76, 1.08, 0.91, 0.07, 0.07, 0.08, { top: '#FFFFFF', left: C.petrol, right: shade(C.petrol, -0.15) })
+    })
+    // TV på en lav benk, vendt inn mot sofaen
+    add(5.74 + 5.12 + 0.2, () => {
+      box(ctx, v, 5.62, 4.85, 0, 0.24, 0.55, 0.42, { top: shade(C.oak, 0.12), left: C.oak, right: C.oakDark })
+      box(ctx, v, 5.71, 4.9, 0.42, 0.05, 0.45, 0.36, { top: '#3A3E3F', left: '#232728', right: '#1C2526' })
+      const zap = input.events.tv === 2
+      const on = zap || L.night < 0.6
+      onPlaneX(ctx, v, 5.762, 0.78, () => {
+        if (!on) {
+          ctx.fillStyle = '#16202A'
+          ctx.fillRect(493, 3, 39, 30)
+          return
+        }
+        // Rolig naturprogram – eller raske kanalbytter når noen krangler om fjernkontrollen
+        const channels = [['#7FC4D9', '#3F8A63'], ['#E9897A', '#F2C14E'], ['#3F5E73', '#BFE3EE'], ['#D9534F', '#2A2D2E']]
+        const [sky, ground] = channels[zap ? Math.floor(t * 5) % channels.length : 0]
+        ctx.fillStyle = sky
+        ctx.fillRect(493, 3, 39, 30)
+        ctx.fillStyle = ground
+        ctx.fillRect(493, 21 + Math.sin(t * 0.8) * 2, 39, 14)
+        if (zap && Math.floor(t * 10) % 3 === 0) {
+          ctx.fillStyle = 'rgba(255,255,255,0.55)'
+          for (let i = 0; i < 5; i++) ctx.fillRect(493, 5 + i * 6, 39, 2)
+        }
+      })
+    })
+
     // Fellesstue: sofa og spillbord
     armchair(6.0, 3.78, 1.5, '#C99A3F')
     add(6.9 + 4.95 + 0.3, () => {
@@ -1274,14 +1327,155 @@ function collectObjects(ctx: CanvasRenderingContext2D, v: View, input: SceneInpu
   const lush = 0.78 + Math.min(4, Math.max(0, green - 1)) * 0.05
   if (green >= 1) add(9.7 + 0.5, () => plant(ctx, v, 9.7, 0.46, lush, t))
   if (green >= 2) add(0.42 + 5.1, () => plant(ctx, v, 0.42, 5.1, lush, t))
-  if (green >= 4) add(4.98 + 5.16, () => plant(ctx, v, 4.98, 5.16, lush * 0.82, t))
+  if (green >= 4 && input.wardType !== 'demens') add(4.98 + 5.16, () => plant(ctx, v, 4.98, 5.16, lush * 0.82, t))
   if (green >= 5) add(9.62 + 5.2, () => plant(ctx, v, 9.62, 5.2, lush * 0.82, t))
 
-  // ---- Pleierne ----
+  // ---- Rekvisitter fra hendelsene ----
+  const cup = (x: number, y: number, z: number, side: string) => {
+    box(ctx, v, x - 0.045, y - 0.045, z, 0.09, 0.09, 0.09, { top: '#5A3A22', left: side, right: shade(side, -0.15) })
+    const [sx, sy] = P(v, x, y, z + 0.12)
+    steam(ctx, v, sx, sy, t, 0.7)
+  }
+  const drawProp = (p: SceneProp): void => {
+    ctx.save()
+    ctx.globalAlpha *= p.alpha
+    const [sx, sy] = P(v, p.x, p.y, p.z)
+    switch (p.kind) {
+      case 'dam': {
+        // Blank dam på gulvet
+        ctx.fillStyle = p.color
+        ctx.globalAlpha *= 0.78
+        ctx.beginPath()
+        ctx.ellipse(sx, sy, 17 * v.s * p.n, 8 * v.s * p.n, 0, 0, Math.PI * 2)
+        ctx.ellipse(sx + 11 * v.s * p.n, sy + 3 * v.s * p.n, 8 * v.s * p.n, 4 * v.s * p.n, 0, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = 'rgba(255,255,255,0.5)'
+        ctx.beginPath()
+        ctx.ellipse(sx - 5 * v.s * p.n, sy - 2 * v.s * p.n, 5 * v.s * p.n, 1.6 * v.s * p.n, -0.3, 0, Math.PI * 2)
+        ctx.fill()
+        break
+      }
+      case 'botte': {
+        box(ctx, v, p.x - 0.1, p.y - 0.1, 0, 0.2, 0.2, 0.24, { top: '#BFE3EE', left: '#4C93B8', right: '#3B7C9E' })
+        const [hx, hy] = P(v, p.x, p.y, 0.24)
+        ctx.strokeStyle = '#8E999B'
+        ctx.lineWidth = 1.1 * v.s
+        ctx.beginPath()
+        ctx.arc(hx, hy, 5.4 * v.s, Math.PI, Math.PI * 2)
+        ctx.stroke()
+        break
+      }
+      case 'stol':
+        woodChair(p.x - 0.17, p.y - 0.17)
+        break
+      case 'bag':
+        box(ctx, v, p.x - 0.18, p.y - 0.11, 0, 0.36, 0.22, 0.2, { top: '#4F7088', left: '#3F5E73', right: '#2F4A5C' })
+        box(ctx, v, p.x - 0.18, p.y - 0.02, 0.2, 0.36, 0.04, 0.012, { top: C.rav, left: C.rav, right: C.rav })
+        break
+      case 'pose':
+        box(ctx, v, p.x - 0.09, p.y - 0.07, 0, 0.18, 0.14, 0.26, { top: '#3F8A63', left: '#F4EEE2', right: '#E2DACB' })
+        box(ctx, v, p.x + 0.01, p.y - 0.03, 0.26, 0.05, 0.05, 0.07, { top: '#F4EEE2', left: '#E08A3C', right: '#C97730' })
+        break
+      case 'samling':
+        // Permer og kopper fra vaktrommet, stablet ved stolen
+        box(ctx, v, p.x - 0.16, p.y - 0.12, 0, 0.3, 0.24, 0.06, { top: '#3B7088', left: '#2B5B6C', right: '#234E5E' })
+        box(ctx, v, p.x - 0.13, p.y - 0.1, 0.06, 0.28, 0.22, 0.06, { top: '#E28A4C', left: C.rav, right: '#B4612A' })
+        box(ctx, v, p.x - 0.1, p.y - 0.06, 0.12, 0.26, 0.2, 0.05, { top: C.papir, left: '#E6DFD0', right: '#D6CEBD' })
+        box(ctx, v, p.x + 0.2, p.y + 0.04, 0, 0.09, 0.09, 0.1, { top: '#FFFFFF', left: '#F7F5F0', right: '#E2DCCF' })
+        box(ctx, v, p.x + 0.22, p.y - 0.12, 0, 0.09, 0.09, 0.1, { top: '#FFFFFF', left: C.petrol, right: shade(C.petrol, -0.15) })
+        break
+      case 'vafler': {
+        // Vaffelfat og to kopper på kaffebordet
+        ctx.fillStyle = '#FFFFFF'
+        ctx.beginPath()
+        ctx.ellipse(sx, sy, 8.5 * v.s, 4.4 * v.s, 0, 0, Math.PI * 2)
+        ctx.fill()
+        for (const [dx, dy] of [[-3, -1], [2.6, -0.4], [0, -2.6]] as const) {
+          ctx.fillStyle = '#D9A441'
+          ctx.beginPath()
+          ctx.ellipse(sx + dx * v.s, sy + dy * v.s, 3.6 * v.s, 2 * v.s, 0, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.strokeStyle = 'rgba(140,78,42,0.6)'
+          ctx.lineWidth = 0.6 * v.s
+          ctx.stroke()
+        }
+        cup(p.x + 0.2, p.y + 0.2, p.z, '#F7F5F0')
+        cup(p.x - 0.02, p.y + 0.26, p.z, C.rav)
+        break
+      }
+      case 'bukett':
+        vase(p.x, p.y, p.z, ['#E9897A', '#F2C14E', '#D9534F'])
+        vase(p.x + 0.02, p.y + 0.01, p.z + 0.05, ['#C2788A', '#F4EEE2', '#E08A3C'])
+        break
+      case 'soel': {
+        ctx.fillStyle = '#8A5A32'
+        ctx.globalAlpha *= 0.85
+        ctx.beginPath()
+        ctx.ellipse(sx, sy, 8 * v.s, 3.6 * v.s, 0.2, 0, Math.PI * 2)
+        ctx.fill()
+        // Kruset som veltet
+        ctx.fillStyle = '#FFFFFF'
+        roundRect(ctx, sx - 9 * v.s, sy - 3.4 * v.s, 5.4 * v.s, 3.4 * v.s, 1.2 * v.s)
+        ctx.fill()
+        break
+      }
+      case 'gryte': {
+        box(ctx, v, p.x - 0.11, p.y - 0.11, p.z, 0.22, 0.22, 0.14, { top: '#D5DADB', left: '#AEB7B9', right: '#8E999B' })
+        box(ctx, v, p.x - 0.03, p.y - 0.03, p.z + 0.14, 0.06, 0.06, 0.03, { top: '#2A2D2E', left: '#2A2D2E', right: '#1C2526' })
+        const [gx, gy] = P(v, p.x, p.y, p.z + 0.24)
+        steam(ctx, v, gx, gy, t, 1.25)
+        steam(ctx, v, gx + 3 * v.s, gy - 6 * v.s, t + 0.4, 0.9)
+        break
+      }
+      case 'varer':
+        box(ctx, v, p.x - 0.1, p.y - 0.05, p.z, 0.09, 0.09, 0.2, { top: '#FFFFFF', left: '#5E96AB', right: '#4C8298' })
+        box(ctx, v, p.x + 0.02, p.y - 0.02, p.z, 0.1, 0.2, 0.09, { top: '#E3B866', left: '#C99A3F', right: '#B5863A' })
+        for (const [dx, dy, col] of [[0.03, 0.24, '#D9534F'], [0.1, 0.3, '#7FA36B']] as const) {
+          const [ax, ay] = P(v, p.x + dx, p.y + dy, p.z + 0.04)
+          ctx.fillStyle = col
+          ctx.beginPath()
+          ctx.arc(ax, ay, 2.8 * v.s, 0, Math.PI * 2)
+          ctx.fill()
+        }
+        break
+      case 'tallerkener':
+        // Bordet dekkes, to kuverter om gangen
+        for (const [dx, dy] of ([[-0.22, -0.22], [0.22, -0.22], [-0.22, 0.22], [0.22, 0.22]] as const).slice(0, p.n)) {
+          const [tx, ty] = P(v, p.x + dx, p.y + dy, p.z)
+          ctx.fillStyle = '#FFFFFF'
+          ctx.beginPath()
+          ctx.ellipse(tx, ty, 6.2 * v.s, 3.2 * v.s, 0, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.strokeStyle = 'rgba(43,91,108,0.45)'
+          ctx.lineWidth = 0.8 * v.s
+          ctx.beginPath()
+          ctx.ellipse(tx, ty, 4 * v.s, 2 * v.s, 0, 0, Math.PI * 2)
+          ctx.stroke()
+        }
+        break
+      case 'kopp':
+        cup(p.x, p.y, p.z, '#F7F5F0')
+        break
+    }
+    ctx.restore()
+  }
+  // Det som ligger på gulvet, havner under føttene til den som står der; resten sorteres som møbler.
+  for (const p of input.events.props) add(p.x + p.y + (p.kind === 'dam' ? -0.7 : p.z > 0 ? 0.62 : 0.02), () => drawProp(p))
+
+  // ---- Pleierne, beboerne og pårørende ----
+  const graph = input.crew.graph
   for (const a of input.crew.agents) {
-    add(a.x + a.y + 0.05, () => {
-      const [sx, sy] = P(v, a.x, a.y, 0)
+    add(walkerDepth(graph, a), () => {
+      const [x, y] = walkerPoint(a)
+      const [sx, sy] = P(v, x, y, a.lift)
       drawFigure(ctx, v, styleFor(a.look), agentPose(a, sx, sy, t))
+    })
+  }
+  for (const r of input.residents) {
+    add(walkerDepth(graph, r), () => {
+      const [x, y] = walkerPoint(r)
+      const [sx, sy] = P(v, x, y, r.lift)
+      drawFigure(ctx, v, residentStyle(r), residentPose(r, sx, sy, t, r.kind === 'beboer' && input.trivsel < 30))
     })
   }
 
@@ -1352,6 +1546,16 @@ function drawLamps(ctx: CanvasRenderingContext2D, v: View, L: Light, up: Upgrade
   }
 }
 
+/** En lyskilde som følger med en hendelse (lommelykt, kveldsro). */
+interface SceneLight {
+  x: number
+  y: number
+  z: number
+  /** Radius i flisbredder. */
+  r: number
+  strength: number
+}
+
 export interface LightLayer {
   canvas: HTMLCanvasElement
   ctx: CanvasRenderingContext2D
@@ -1365,6 +1569,7 @@ function applyLighting(
   layer: LightLayer,
   dpr: number,
   doors: DoorSlot[],
+  extra: SceneLight[],
 ): void {
   if (L.dark < 0.01 && L.warm < 0.01) return
   const warmLamps = (up.dognrytmelys ?? 0) >= 1
@@ -1407,6 +1612,11 @@ function applyLighting(
   }
   const [kx, ky] = P(v, 0.4, 1.6, 1.0)
   hole(kx, ky, v.tw * 0.8, 1, L.lamp * 0.35)
+  // Lommelykt og levende lys fra hendelsene
+  for (const light of extra) {
+    const [ex, ey] = P(v, light.x, light.y, light.z)
+    hole(ex, ey, v.tw * light.r, 0.75, light.strength)
+  }
   lc.globalCompositeOperation = 'source-over'
 
   ctx.save()
@@ -1483,8 +1693,52 @@ export function drawScene(
   objects.sort((a, b) => a.depth - b.depth)
   for (const o of objects) o.draw()
 
+  // Lyskilder fra hendelsene: lommelykta til nattevakta og det varme lyset ved kveldsro
+  const walkers: Walker[] = [...input.crew.agents, ...input.residents]
+  const torches = walkers.filter((w) => w.carry === 'lykt' && w.alpha > 0.3)
+  const lights: SceneLight[] = torches.map((w) => {
+    const [x, y] = walkerPoint(w)
+    return { x: x + (w.away ? -0.5 : 0.5) * w.flip * 0.6 + (w.away ? -0.3 : 0.3), y: y + (w.away ? -0.3 : 0.3), z: 0.2, r: 1.25, strength: 0.75 * w.alpha }
+  })
+  const ro = input.events.kveldsro
+  if (ro > 0.01) lights.push({ x: 6.8, y: 4.5, z: 0.5, r: 2.4, strength: 0.6 * ro })
+
   drawLamps(ctx, v, L, input.upgrades)
-  applyLighting(ctx, v, L, input.upgrades, layer, dpr, input.doors)
+  applyLighting(ctx, v, L, input.upgrades, layer, dpr, input.doors, lights)
+
+  // Kveldsro: varmt skjær rundt sittegruppa
+  if (ro > 0.01) {
+    const [gx, gy] = P(v, 6.8, 4.45, 0.55)
+    const r = v.tw * 2.3
+    const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, r)
+    g.addColorStop(0, `rgba(255,190,110,${0.4 * ro})`)
+    g.addColorStop(0.5, `rgba(255,176,96,${0.18 * ro})`)
+    g.addColorStop(1, 'rgba(255,176,96,0)')
+    ctx.save()
+    ctx.globalCompositeOperation = 'source-atop'
+    ctx.fillStyle = g
+    ctx.fillRect(gx - r, gy - r, r * 2, r * 2)
+    ctx.restore()
+  }
+  // Lyskjegla fra lommelykta
+  for (const w of torches) {
+    const [x, y] = walkerPoint(w)
+    const [hx, hy] = P(v, x, y, 0.72)
+    const dir = w.flip
+    const g = ctx.createLinearGradient(hx, hy, hx + dir * 62 * v.s, hy + 24 * v.s)
+    g.addColorStop(0, `rgba(255,238,180,${0.6 * w.alpha})`)
+    g.addColorStop(1, 'rgba(255,238,180,0)')
+    ctx.save()
+    ctx.globalCompositeOperation = 'source-atop'
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.moveTo(hx + dir * 11 * v.s, hy - 2 * v.s)
+    ctx.lineTo(hx + dir * 66 * v.s, hy + 8 * v.s)
+    ctx.lineTo(hx + dir * 54 * v.s, hy + 40 * v.s)
+    ctx.closePath()
+    ctx.fill()
+    ctx.restore()
+  }
 
   // ---- Alt under tegnes etter lyssettingen, så det synes også om natta ----
 
@@ -1553,17 +1807,11 @@ export function drawScene(
     ctx.fillRect(cx - r, cy - r, r * 2, r * 2)
   }
 
-  // Statusbobler
-  for (const a of input.crew.agents) {
-    if (!a.bubble) continue
-    const [sx, sy] = P(v, a.x, a.y, 0)
-    drawBubble(ctx, v, sx, sy + (a.sitting ? 7 * v.s : 0), a.bubble, a.bubbleAlpha * a.alpha, input.time)
-  }
-  // Beboerens humør (bare når hen sitter i stolen)
-  const mood = Math.sin(input.time * 0.35)
-  if (input.residentPresent && mood > 0.55) {
-    const [rx, ry] = P(v, 9.02, 4.82, 0.34)
-    const icon = input.trivsel >= 60 ? 'hjerte' : input.trivsel < 35 ? 'stress' : 'kaffe'
-    drawBubble(ctx, v, rx, ry + 7 * v.s, icon, Math.min(1, (mood - 0.55) * 6), input.time)
+  // Statusbobler over pleiere, beboere og pårørende
+  for (const w of walkers) {
+    if (!w.bubble) continue
+    const [x, y] = walkerPoint(w)
+    const [sx, sy] = P(v, x, y, w.lift)
+    drawBubble(ctx, v, sx, sy + (w.sitting ? 7 * v.s : 0), w.bubble, w.bubbleAlpha * w.alpha, input.time, w.whisper)
   }
 }

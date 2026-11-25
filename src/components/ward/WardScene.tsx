@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react'
+import { SHIFT_ORDER } from '@/data/balance'
 import { liveMinute, MIN_PER_DAY, MIN_PER_SHIFT, minuteOfDay } from '@/engine/time'
 import type { UpgradeLevels, WardTypeId } from '@/types'
-import { Crew, type AgentInput, type CrewContext } from './scene/agents'
+import { Crew, residentCountFor, Residents, type AgentInput, type CrewContext } from './scene/agents'
 import { drawScene, type LightLayer } from './scene/draw'
 import { makeView, type View } from './scene/iso'
 import { doorCountFor, doorLayout, type DoorSlot, type SceneNote } from './scene/layout'
+import { SceneEvents } from './scene/sceneEvents'
 
 export interface WardSceneProps {
   /** Motorens spillminutt og tidspunktet for siste steg – scenen interpolerer selv. */
@@ -12,10 +14,10 @@ export interface WardSceneProps {
   lastTickAt: number
   upgrades: UpgradeLevels
   wardType: WardTypeId
-  /** Antall senger – styrer hvor mange pasientdører som vises. */
+  /** Antall senger – styrer hvor mange pasientdører og beboere som vises. */
   beds: number
   trivsel: number
-  /** Dekning (0–1) og snittstress på vakta som går: bestemmer tempoet i rommet. */
+  /** Dekning (0–1) og snittstress på vakta som går: bestemmer tempoet i rommet og hva som skjer der. */
   coverage: number
   avgStress: number
   /** Et takkekort fra pårørende virker akkurat nå. */
@@ -38,7 +40,9 @@ const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
  *
  * Scenen er en ren avspeiling av spilltilstanden: døgnrytme og vaktskifte
  * styrer hvor pleierne er, dekning og stress styrer tempoet, og senger,
- * oppgraderinger og avdelingstype styrer hva som står i rommet.
+ * oppgraderinger og avdelingstype styrer hva som står i rommet. Beboerne og
+ * mikro-hendelsene (scene/sceneEvents.ts) er pynt oppå dette: de leser
+ * situasjonen, men endrer aldri spilltilstanden.
  */
 export function WardScene(props: WardSceneProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -56,6 +60,10 @@ export function WardScene(props: WardSceneProps) {
     const lightCanvas = document.createElement('canvas')
     const layer: LightLayer = { canvas: lightCanvas, ctx: lightCanvas.getContext('2d')! }
     const crew = new Crew()
+    const residents = new Residents()
+    const events = new SceneEvents()
+    // Til utprøving i nettleserkonsollen: __vaktrommetScene.events.force('potteplante')
+    if (import.meta.env.DEV) Object.assign(window, { __vaktrommetScene: { crew, residents, events } })
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     let view: View = makeView(1, 1)
@@ -80,6 +88,7 @@ export function WardScene(props: WardSceneProps) {
     let time = 0
     let crewKey = ''
     let first = true
+    let firstResidents = true
     let visible = true
     let doors: DoorSlot[] = []
 
@@ -94,7 +103,9 @@ export function WardScene(props: WardSceneProps) {
       // Motoren går i faste steg; lys, klokke og koreografi glir jevnt mellom dem.
       const shownMinute = liveMinute(p, Date.now())
       const intoShift = ((shownMinute % MIN_PER_SHIFT) + MIN_PER_SHIFT) % MIN_PER_SHIFT
-      const night = Math.floor((((shownMinute % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY) / MIN_PER_SHIFT) === 2
+      const shift = SHIFT_ORDER[Math.floor((((shownMinute % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY) / MIN_PER_SHIFT)] ?? 'dag'
+      const night = shift === 'natt'
+      const tralle = (p.upgrades.medisintralle ?? 0) >= 1
 
       const context: CrewContext = {
         // Rapport: de siste minuttene av vakta og de første av den neste (overlapp).
@@ -103,12 +114,18 @@ export function WardScene(props: WardSceneProps) {
         // Tempoet i rommet: underdekning og stress gir hastverk; en ubemannet vakt er maks press.
         urgency: p.crew.length === 0 ? 1 : clamp01(Math.max((0.85 - p.coverage) / 0.45, (p.avgStress - 35) / 40)),
         stille: (p.upgrades.stillerapport ?? 0) >= 1,
-        residentInChair: !night,
+        residentInChair: residents.seated('sete'),
       }
 
       const doorCount = doorCountFor(p.beds)
       if (doors.length !== doorCount) doors = doorLayout(doorCount)
-      crew.setLayout(doors, (p.upgrades.medisintralle ?? 0) >= 1)
+      const graphBefore = crew.graph
+      crew.setLayout(doors, tralle, p.wardType)
+      if (crew.graph !== graphBefore) {
+        // Nytt veinett (flere dører eller ny avdelingstype): det som pågikk, avbrytes.
+        events.reset()
+        residents.setGraph(crew.graph)
+      }
 
       const key = p.crew.map((c) => c.id).join(',')
       if (key !== crewKey || first) {
@@ -125,7 +142,25 @@ export function WardScene(props: WardSceneProps) {
           }
         }
       }
-      crew.update(reduced ? dt * 0.6 : dt, context, time)
+      const step = reduced ? dt * 0.6 : dt
+      crew.update(step, context, time)
+      residents.update(
+        step,
+        {
+          count: residentCountFor(p.beds, p.wardType, night, Math.floor(shownMinute / MIN_PER_DAY)),
+          mood: p.trivsel >= 60 ? 'hjerte' : p.trivsel < 35 ? 'stress' : 'kaffe',
+        },
+        time,
+        firstResidents,
+      )
+      firstResidents = false
+      events.update(step, {
+        crew,
+        residents,
+        doors,
+        time,
+        ctx: { ward: p.wardType, shift, coverage: p.crew.length === 0 ? 0 : p.coverage, trivsel: p.trivsel, urgency: context.urgency, rapport: context.rapport, tralle },
+      })
 
       drawScene(
         ctx,
@@ -140,8 +175,9 @@ export function WardScene(props: WardSceneProps) {
           notes: p.notes,
           trivsel: p.trivsel,
           thanksActive: p.thanksActive,
-          residentPresent: context.residentInChair,
           crew,
+          residents: residents.agents,
+          events: events.view(),
         },
         layer,
         dpr,
