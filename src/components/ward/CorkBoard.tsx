@@ -54,30 +54,46 @@ function PostIt({ note, onOpen, index }: { note: ActiveDilemma; onOpen: () => vo
   if (!raw) return null
   const def = renderDilemma(raw, note.subject)
   const part = note.followUpOf ? chainLabel(def) : null
+  // Lappens bredde følger kolonnen den står i, ikke skjermen, så størrelsene styres av
+  // en container-spørring. Linjetallene er valgt slik at tittel, brødtekst og avsender
+  // alltid får plass: hele teksten står uansett i arket som åpnes. De forkortede
+  // linjene må ikke ha `block` – den overstyrer visningen `line-clamp` er avhengig av.
   return (
-    <button
-      onClick={onOpen}
-      className={cx(
-        'postit group relative aspect-[1/1.06] w-full animate-pop overflow-hidden p-2.5 pt-5 pb-6 text-left sm:p-3 sm:pt-5 sm:pb-6',
-        `postit-${def.color}`,
-      )}
-      style={{ ['--tilt' as string]: `${note.tilt}deg`, animationDelay: `${index * 70}ms` }}
-    >
-      <span className="knappenal absolute top-1.5 left-1/2 -translate-x-1/2" />
-      {note.followUpOf && (
-        <span
-          className={cx(
-            'absolute top-1 right-1 rotate-[8deg] rounded border-[1.5px] px-1 font-mono text-[8px] font-extrabold tracking-wider uppercase',
-            part ? 'border-petrol bg-petrol-soft/90 text-petrol' : 'border-fare bg-fare-soft/90 text-fare',
-          )}
-        >
-          {part ?? 'Oppfølging'}
+    <div className="@container">
+      <button
+        onClick={onOpen}
+        className={cx(
+          'postit group relative flex aspect-[1/1.4] w-full animate-pop flex-col justify-between overflow-hidden p-2.5 pt-5 pb-1.5 text-left',
+          // Smale lapper er høyere, så to linjer tittel og to linjer tekst får luft under seg.
+          '@min-[7.5rem]:aspect-[1/1.25] @min-[9.5rem]:aspect-[1/1.06] @min-[9.5rem]:p-3 @min-[9.5rem]:pt-5 @min-[9.5rem]:pb-2',
+          `postit-${def.color}`,
+        )}
+        style={{ ['--tilt' as string]: `${note.tilt}deg`, animationDelay: `${index * 70}ms` }}
+      >
+        <span className="knappenal absolute top-1.5 left-1/2 -translate-x-1/2" />
+        {note.followUpOf && (
+          <span
+            className={cx(
+              'absolute top-1 right-1 rotate-[8deg] rounded border-[1.5px] px-1 font-mono text-[8px] font-extrabold tracking-wider uppercase',
+              part ? 'border-petrol bg-petrol-soft/90 text-petrol' : 'border-fare bg-fare-soft/90 text-fare',
+            )}
+          >
+            {part ?? 'Oppfølging'}
+          </span>
+        )}
+        <span className="block min-h-0">
+          <span className="hand line-clamp-2 text-[1.12rem] leading-[1] font-bold text-blekk @min-[9.5rem]:text-[1.3rem]">
+            {def.title}
+          </span>
+          <span className="hand mt-1 line-clamp-2 text-[0.9rem] leading-[1.05] text-blekk/75 @min-[6.5rem]:line-clamp-3 @min-[9.5rem]:text-[1rem] @min-[11.5rem]:line-clamp-4 @min-[13rem]:line-clamp-6">
+            {def.body}
+          </span>
         </span>
-      )}
-      <span className="hand line-clamp-2 block text-[1.12rem] leading-[1] font-bold text-blekk sm:text-[1.3rem]">{def.title}</span>
-      <span className="hand mt-1 line-clamp-2 block text-[0.9rem] leading-[1.05] text-blekk/75 sm:text-[1rem]">{def.body}</span>
-      <span className="hand absolute right-2 bottom-1 hidden text-[0.8rem] text-blekk/55 sm:block">– {def.from}</span>
-    </button>
+        <span className="hand mt-auto block shrink-0 truncate pt-1 text-right text-[0.8rem] leading-[1.1] text-blekk/55 @min-[9.5rem]:text-[0.9rem]">
+          – {def.from}
+        </span>
+      </button>
+    </div>
   )
 }
 
