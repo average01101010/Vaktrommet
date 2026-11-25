@@ -5,7 +5,7 @@ import type { Profession, Rarity, ShiftId } from '@/types'
  * klient og server (validering) alltid regner likt.
  */
 export const BALANCE = {
-  version: 4,
+  version: 5,
 
   // ---- Tid ----
   /** Ett reelt sekund = fire spillminutter → én vakt (8 t) varer to minutter. */
@@ -113,6 +113,11 @@ export const BALANCE = {
   dilemmaMinHours: 10,
   dilemmaMaxHours: 20,
   dilemmaMaxActive: 3,
+  /** Så mange av de siste dilemmaene som ikke gjentas. */
+  dilemmaRecent: 30,
+  /** Vekt i trekningen: avdelingsspesifikke og andre kontekstuelle dilemmaer prioriteres foran de generelle. */
+  dilemmaWeightWard: 3,
+  dilemmaWeightContext: 1.6,
   dilemmaBudgetTierScale: 1.5,
   dilemmaFagpoengTierScale: 1,
 

@@ -105,3 +105,9 @@ export const RESIDENT_NAMES = [
   'Randi', 'Olaug', 'Leif', 'Gudrun', 'Trygve', 'Synnøve', 'Arvid', 'Kari', 'Alf', 'Eva',
   'Ragnhild', 'Finn', 'Jorunn', 'Egil', 'Turid', 'Asbjørn', 'Ingrid', 'Knut', 'Berit', 'Olav',
 ]
+
+/** Kvinnenavnene i lista over – styrer pronomen når en beboer settes inn i en dilemmatekst. */
+export const RESIDENT_FEMALE_NAMES: ReadonlySet<string> = new Set([
+  'Solveig', 'Gerd', 'Ingeborg', 'Astrid', 'Ruth', 'Bjørg', 'Else', 'Liv', 'Aslaug', 'Magnhild', 'Borghild',
+  'Randi', 'Olaug', 'Gudrun', 'Synnøve', 'Kari', 'Eva', 'Ragnhild', 'Jorunn', 'Turid', 'Ingrid', 'Berit',
+])

@@ -56,7 +56,8 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
     () =>
       game.dilemmas.active.map((a) => ({
         color: DILEMMA_BY_ID[a.defId]?.color ?? 'gul',
-        followUp: Boolean(a.followUpOf),
+        // Rød kant bare på utsatte saker som har kommet tilbake – ikke på neste steg i en historie.
+        followUp: Boolean(a.followUpOf) && !DILEMMA_BY_ID[a.defId]?.chain,
       })),
     [game.dilemmas.active],
   )

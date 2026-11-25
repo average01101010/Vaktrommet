@@ -1,5 +1,4 @@
 import { BALANCE, TIERS } from '@/data/balance'
-import { DILEMMA_BY_ID, RANDOM_DILEMMAS } from '@/data/dilemmas'
 import { PASS_XP } from '@/data/economy'
 import { INSPECTIONS } from '@/data/league'
 import { RESIDENT_PROFILES } from '@/data/residents'
@@ -25,6 +24,7 @@ import type {
   ThanksState,
   WardTypeId,
 } from '@/types'
+import { postDueFollowUps, spawnDilemma } from './dilemmas'
 import { maxSkillLevelFor, modifiersFor, offlineCapHours, tierFor } from './modifiers'
 import { computeDemand, syncResidents } from './residents'
 import { pick, rand, randInt, seedFrom } from './rng'
@@ -44,7 +44,7 @@ import {
 } from './time'
 
 /** Versjon av lagringsformatet. Økes når GameState endrer form – se engine/migrate. */
-export const STATE_VERSION = 4
+export const STATE_VERSION = 5
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
 
@@ -207,46 +207,6 @@ export function syncCalendar(d: GameState, nowMs: number): void {
   if (d.monetization.seasonPass.seasonId !== season) {
     d.monetization.seasonPass = { seasonId: season, xp: 0, premium: false, claimedFree: [], claimedPremium: [] }
   }
-}
-
-function postDilemma(d: GameState, defId: string, followUpOf?: string): void {
-  d.dilemmas.counter++
-  d.dilemmas.active.push({
-    uid: d.dilemmas.counter,
-    defId,
-    postedAt: d.minute,
-    tilt: Math.round((rand(d) * 8 - 4) * 10) / 10,
-    ...(followUpOf ? { followUpOf } : {}),
-  })
-}
-
-function spawnDilemma(d: GameState): void {
-  const active = new Set(d.dilemmas.active.map((a) => a.defId))
-  const recent = new Set(d.dilemmas.recent)
-  let pool = RANDOM_DILEMMAS.filter((def) => (def.minTier ?? 0) <= d.tier && !active.has(def.id) && !recent.has(def.id))
-  if (pool.length === 0) pool = RANDOM_DILEMMAS.filter((def) => (def.minTier ?? 0) <= d.tier && !active.has(def.id))
-  if (pool.length === 0) return
-  const def = pool[Math.floor(rand(d) * pool.length)]
-  postDilemma(d, def.id)
-  d.dilemmas.recent.push(def.id)
-  if (d.dilemmas.recent.length > 10) d.dilemmas.recent.shift()
-}
-
-/**
- * Utsatte saker kommer tilbake. Oppfølginger får henge selv om tavla er full
- * (én lapp over taket), så de aldri forsvinner i køen.
- */
-function postDueFollowUps(d: GameState): void {
-  if (d.dilemmas.followUps.length === 0) return
-  const waiting = []
-  for (const f of d.dilemmas.followUps) {
-    const due = f.dueAt <= d.minute
-    const room = d.dilemmas.active.length <= BALANCE.dilemmaMaxActive
-    const alreadyUp = d.dilemmas.active.some((a) => a.defId === f.defId)
-    if (due && room && !alreadyUp && DILEMMA_BY_ID[f.defId]) postDilemma(d, f.defId, f.sourceId)
-    else if (DILEMMA_BY_ID[f.defId] && !(due && alreadyUp)) waiting.push(f)
-  }
-  d.dilemmas.followUps = waiting
 }
 
 /** Første gang en bonus-synergi treffes: lås den opp i oppdagelsesboka. */

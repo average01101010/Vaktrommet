@@ -4,7 +4,8 @@ import { STARTER_SYNERGY_IDS, SYNERGY_BY_ID } from '@/data/synergies'
 import { SKILL_ORDER } from '@/data/professions'
 import { emptyUpgradeLevels } from '@/data/upgrades'
 import { WARD_TYPES } from '@/data/wards'
-import type { GameState, StaffId, StaffMember } from '@/types'
+import type { DilemmaSubject, GameState, StaffId, StaffMember } from '@/types'
+import { pickSubject, usesResident } from './dilemmas'
 import { modifiersFor } from './modifiers'
 import { syncResidents } from './residents'
 import { createInitialState, STATE_VERSION } from './simulation'
@@ -118,6 +119,7 @@ export function migrateGameState(raw: unknown, nowMs: number): GameState {
   d.dilemmas.followUps = d.dilemmas.followUps.filter(
     (f) => isObject(f) && typeof f.defId === 'string' && f.defId in DILEMMA_BY_ID && typeof f.dueAt === 'number',
   )
+  d.dilemmas.recent = d.dilemmas.recent.filter((id) => typeof id === 'string').slice(-BALANCE.dilemmaRecent)
 
   // ---- Oppdagelsesboka: bare kjente synergier, og startkunnskapen er alltid med ----
   const known = (ids: unknown[]) => ids.filter((id): id is string => typeof id === 'string' && id in SYNERGY_BY_ID)
@@ -154,6 +156,18 @@ export function migrateGameState(raw: unknown, nowMs: number): GameState {
       (r) => isObject(r) && typeof r.profile === 'string' && typeof r.dischargeAt === 'number' && typeof r.room === 'number',
     )
   }
+
+  // ---- Lapper som handler om en beboer, må vite hvem ----
+  // Eldre lagringer hadde navnet skrevet rett i teksten; nå settes en av dagens beboere inn.
+  const validSubject = (v: unknown): v is DilemmaSubject =>
+    isObject(v) && typeof v.name === 'string' && typeof v.room === 'number' && typeof v.residentId === 'number'
+  for (const note of d.dilemmas.active) {
+    if (validSubject(note.subject)) continue
+    delete note.subject
+    const subject = usesResident(DILEMMA_BY_ID[note.defId]) ? pickSubject(d, DILEMMA_BY_ID[note.defId]) : undefined
+    if (subject) note.subject = subject
+  }
+  for (const f of d.dilemmas.followUps) if (!validSubject(f.subject)) delete f.subject
 
   return d
 }

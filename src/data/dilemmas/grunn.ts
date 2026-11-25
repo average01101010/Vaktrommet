@@ -1,16 +1,17 @@
 import type { DilemmaDef } from '@/types'
 
 /**
- * Post-it-dilemmaer fra vaktrommet. Beløp (kr / Fagpoeng) er grunnverdier og
- * skaleres med avdelingsnivå i motoren.
+ * Grunnbanken: hverdagssituasjonene alle avdelinger møter, og de fem utsatte
+ * sakene som kommer tilbake strengere.
  */
-export const DILEMMAS: DilemmaDef[] = [
+export const GRUNN: DilemmaDef[] = [
   {
     id: 'syk_nattevakt',
     title: 'Syk nattevakt',
     body: 'Nattevakta ringte 21:40 – feber og omgangssyke. Ingen har svart på vikar-SMS-en.',
     from: 'Aftenvakta',
     color: 'gul',
+    triggers: { shifts: ['aften'] },
     fagligBegrunnelse:
       'Tjenesten skal være forsvarlig bemannet hele døgnet. Samtidig setter arbeidsmiljøloven grenser for overtid og krever minst 11 timers daglig hvile. En dobbeltvakt løser natta, men øker risikoen for feil.',
     kilde: 'Helse- og omsorgstjenesteloven § 4-1 · Arbeidsmiljøloven § 10-8',
@@ -42,7 +43,7 @@ export const DILEMMAS: DilemmaDef[] = [
   {
     id: 'paaroerende_klage',
     title: 'Pårørende vil ha samtale',
-    body: 'Datteren til Solveig (rom 4) er opprørt. Mener mor ikke får nok hjelp ved måltidene. Vil snakke med «en som bestemmer».',
+    body: 'Datteren til {beboer} (rom {rom}) er opprørt. Mener {forelder} ikke får nok hjelp ved måltidene. Vil snakke med «en som bestemmer».',
     from: 'Primærkontakten',
     color: 'rosa',
     fagligBegrunnelse:
@@ -76,8 +77,8 @@ export const DILEMMAS: DilemmaDef[] = [
   },
   {
     id: 'ernaering_vekttap',
-    title: 'Vekttap på rom 2',
-    body: 'Arne har gått ned 3 kg på en måned. Spiser to skjeer og skyver tallerkenen unna.',
+    title: 'Vekttap på rom {rom}',
+    body: '{beboer} har gått ned 3 kg på en måned. Spiser to skjeer og skyver tallerkenen unna.',
     from: 'Dagvakta',
     color: 'mint',
     fagligBegrunnelse:
@@ -89,7 +90,7 @@ export const DILEMMAS: DilemmaDef[] = [
         label: 'Bestill næringsdrikker',
         hint: 'Raskt og enkelt',
         effect: { budget: -400, trivsel: 2 },
-        outcome: 'Han liker den med sjokoladesmak. De andre står urørt i kjøleskapet.',
+        outcome: '{Han} liker den med sjokoladesmak. De andre står urørt i kjøleskapet.',
       },
       {
         id: 'kartlegging',
@@ -97,7 +98,7 @@ export const DILEMMAS: DilemmaDef[] = [
         hint: 'Krever Ernæring 2+ på vakt',
         requires: { skill: { id: 'ernaering', min: 2 } },
         effect: { fagpoeng: 28, trivsel: 5 },
-        outcome: 'Det viste seg at Arne savnet sild og kokt potet. Kjøkkenet ordnet det.',
+        outcome: 'Det viste seg at {beboer} savnet sild og kokt potet. Kjøkkenet ordnet det.',
       },
       {
         id: 'avvente',
@@ -112,9 +113,10 @@ export const DILEMMAS: DilemmaDef[] = [
   {
     id: 'utagering_korridor',
     title: 'Uro i korridoren',
-    body: 'Rolf (rom 6) er sint og redd, vil hjem til mor. Har slått etter to ansatte. De andre beboerne blir urolige.',
+    body: '{beboer} (rom {rom}) er sint og redd, vil hjem til mor. Har slått etter to ansatte. De andre beboerne blir urolige.',
     from: 'Aftenvakta',
     color: 'rosa',
+    triggers: { residentProfile: 'kognitiv' },
     fagligBegrunnelse:
       'Uro ved demens er ofte uttrykk for et udekket behov: smerte, redsel, sult eller for mange inntrykk. Miljøtiltak og skjerming skal prøves først. Beroligende legemidler er ikke førstevalg, og bruken skal evalueres.',
     kilde: 'Nasjonal faglig retningslinje om demens · TID-modellen',
@@ -125,7 +127,7 @@ export const DILEMMAS: DilemmaDef[] = [
         hint: 'Krever Ro 3+ på vakt',
         requires: { skill: { id: 'deeskalering', min: 3 } },
         effect: { trivsel: 6, fagpoeng: 25, stress: -4, scope: 'paaVakt' },
-        outcome: 'En kopp kakao, et fotoalbum og tjue minutter. Rolf sovnet i godstolen.',
+        outcome: 'En kopp kakao, et fotoalbum og tjue minutter. {beboer} sovnet i godstolen.',
       },
       {
         id: 'behovsmedisin',
@@ -249,9 +251,10 @@ export const DILEMMAS: DilemmaDef[] = [
   {
     id: 'fall_natt',
     title: 'Fall på natta',
-    body: 'Gerd (rom 5) funnet på gulvet 03:20. Våken, klar, vondt i hofta. Sengehesten var nede.',
+    body: '{beboer} (rom {rom}) funnet på gulvet 03:20. Våken, klar, vondt i hofta. Sengehesten var nede.',
     from: 'Nattevakta',
     color: 'rosa',
+    triggers: { shifts: ['natt'] },
     fagligBegrunnelse:
       'Etter et fall skal beboeren undersøkes før forflytning, vitale mål tas og hendelsen dokumenteres. Fallet skal føre til ny fallrisikovurdering og tiltak, og pårørende skal informeres.',
     kilde: 'Tiltakspakke for forebygging av fall (I trygge hender 24-7)',
@@ -269,14 +272,14 @@ export const DILEMMAS: DilemmaDef[] = [
         label: 'Ring 113 for sikkerhets skyld',
         hint: 'Trygt, men ressurskrevende',
         effect: { budget: -500, avvik: 1, stress: 4, scope: 'paaVakt' },
-        outcome: 'Fire timer på akuttmottaket, så retur. Gerd var sliten, men hel.',
+        outcome: 'Fire timer på akuttmottaket, så retur. {beboer} var sliten, men hel.',
       },
       {
         id: 'sensor',
         label: 'Bestill fallsensor til rommet',
         hint: 'Forebygger neste gang',
         effect: { budget: -1200, avvik: 1, trivsel: 4, fagpoeng: 15 },
-        outcome: 'Sensoren varsler når Gerd setter seg opp. Nattevakta rekker inn før hun står.',
+        outcome: 'Sensoren varsler når {beboer} setter seg opp. Nattevakta rekker inn før {han} står.',
       },
     ],
   },
@@ -316,7 +319,7 @@ export const DILEMMAS: DilemmaDef[] = [
   {
     id: 'trykksaar',
     title: 'Rød hæl',
-    body: 'Rød, varm hæl hos Ingeborg (rom 1). Blekner ikke ved trykk. Hun har ligget mye siste uka.',
+    body: 'Rød, varm hæl hos {beboer} (rom {rom}). Blekner ikke ved trykk. {Han} har ligget mye siste uka.',
     from: 'Dagvakta',
     color: 'mint',
     fagligBegrunnelse:
@@ -336,7 +339,7 @@ export const DILEMMAS: DilemmaDef[] = [
         label: 'Lei trykkavlastende madrass',
         hint: 'Utstyr løser mye',
         effect: { budget: -700, trivsel: 3 },
-        outcome: 'Madrassen surrer svakt hele natta. Ingeborg synes det er som å ligge i en båt.',
+        outcome: 'Madrassen surrer svakt hele natta. {beboer} synes det er som å ligge i en båt.',
       },
       {
         id: 'se_an',
@@ -476,7 +479,7 @@ export const DILEMMAS: DilemmaDef[] = [
         label: 'Ring besøksvennen',
         hint: 'Frivilligsentralen stiller opp',
         effect: { trivsel: 4 },
-        outcome: 'Besøksvennen kom med hunden Balder. Rolf snakket mer enn han har gjort på uker.',
+        outcome: 'Besøksvennen kom med hunden Balder. {beboer} snakket mer enn {han} har gjort på uker.',
       },
       {
         id: 'la_vaere',
@@ -491,8 +494,8 @@ export const DILEMMAS: DilemmaDef[] = [
   // ---------- Faglig fordypning ----------
   {
     id: 'news2_forverring',
-    title: 'Noe er galt med Harald',
-    body: 'Harald (rom 7) er slapp og klam, puster fort og svarer ikke helt adekvat. «Han er ikke seg selv», sier helsefagarbeideren.',
+    title: 'Noe er galt med {beboer}',
+    body: '{beboer} (rom {rom}) er slapp og klam, puster fort og svarer ikke helt adekvat. «{Han} er ikke seg selv», sier helsefagarbeideren.',
     from: 'Aftenvakta',
     color: 'rosa',
     fagligBegrunnelse:
@@ -517,18 +520,19 @@ export const DILEMMAS: DilemmaDef[] = [
       {
         id: 'se_an',
         label: 'Se an til morgenvisitten',
-        hint: 'Han er jo ofte trøtt om kvelden',
+        hint: '{Han} er jo ofte trøtt om kvelden',
         effect: { avvik: 2, trivsel: -6, stress: 6, scope: 'alle' },
-        outcome: 'Klokka fem var han ikke kontaktbar. Innlagt med sepsis. Statsforvalteren ber om en redegjørelse.',
+        outcome: 'Klokka fem var {han} ikke kontaktbar. Innlagt med sepsis. Statsforvalteren ber om en redegjørelse.',
       },
     ],
   },
   {
     id: 'motsetter_seg_stell',
     title: 'Vil ikke dusje',
-    body: 'Kari (rom 3) har demens og har ikke dusjet på ni dager. Hun slår og roper når vi prøver. To vikarer foreslo å «bare holde henne».',
+    body: '{beboer} (rom {rom}) har demens og har ikke dusjet på ni dager. {Han} slår og roper når vi prøver. To vikarer foreslo å «bare holde {ham}».',
     from: 'Dagvakta',
     color: 'gul',
+    triggers: { residentProfile: 'kognitiv' },
     fagligBegrunnelse:
       'Helsehjelp til en pasient uten samtykkekompetanse som motsetter seg hjelpen, krever at tillitsskapende tiltak er forsøkt først, at unnlatelse kan gi vesentlig helseskade, og at det fattes skriftlig vedtak. Tvang uten vedtak er ulovlig.',
     kilde: 'Pasient- og brukerrettighetsloven kap. 4A (§ 4A-3)',
@@ -539,7 +543,7 @@ export const DILEMMAS: DilemmaDef[] = [
         hint: 'Krever noen med Miljø 3+',
         requires: { skill: { id: 'miljoterapi', min: 3 } },
         effect: { trivsel: 5, fagpoeng: 30, stress: -3, scope: 'paaVakt' },
-        outcome: 'Kjent pleier, varmt bad med musikk etter frokost – og et håndkle over skuldrene hele veien. Kari nynnet med.',
+        outcome: 'Kjent pleier, varmt bad med musikk etter frokost – og et håndkle over skuldrene hele veien. {beboer} nynnet med.',
       },
       {
         id: 'vedtak',
@@ -551,19 +555,20 @@ export const DILEMMAS: DilemmaDef[] = [
       },
       {
         id: 'hold',
-        label: 'Hold henne og få det gjort',
+        label: 'Hold {ham} og få det gjort',
         hint: 'Raskt og effektivt',
         effect: { avvik: 2, trivsel: -6, stress: 5, scope: 'paaVakt' },
-        outcome: 'Kari ble ren. Hun ble også redd for dusjrommet – og for dere. Tvang uten vedtak er lovbrudd, og avviket er meldt.',
+        outcome: '{beboer} ble ren. {Han} ble også redd for dusjrommet – og for dere. Tvang uten vedtak er lovbrudd, og avviket er meldt.',
       },
     ],
   },
   {
     id: 'delirium_natt',
     title: 'Plutselig forvirret',
-    body: 'Einar (rom 6) var klar i går. I natt drar han i lakenet, ser «folk i gardina» og vil ut. Datteren er skremt.',
+    body: '{beboer} (rom {rom}) var klar i går. I natt drar {han} i lakenet, ser «folk i gardina» og vil ut. Datteren er skremt.',
     from: 'Nattevakta',
     color: 'rosa',
+    triggers: { shifts: ['natt'] },
     fagligBegrunnelse:
       'Akutt forvirring (delirium) er en medisinsk akuttilstand med en utløsende årsak – ofte infeksjon, smerte, urinretensjon, dehydrering eller legemidler. Finn og behandle årsaken; beroligende legemidler kan forverre tilstanden hos eldre.',
     kilde: '4AT (screening for delirium)',
@@ -574,11 +579,11 @@ export const DILEMMAS: DilemmaDef[] = [
         hint: 'Krever sykepleier på vakt',
         requires: { profession: 'sykepleier' },
         effect: { fagpoeng: 40, trivsel: 4 },
-        outcome: 'Blæra inneholdt 700 ml. Etter tømming og smertelindring roet han seg, og legen fulgte opp urinveisinfeksjonen neste morgen.',
+        outcome: 'Blæra inneholdt 700 ml. Etter tømming og smertelindring roet {han} seg, og legen fulgte opp urinveisinfeksjonen neste morgen.',
       },
       {
         id: 'skjerm',
-        label: 'Skjerm, demp lyset og sitt hos ham',
+        label: 'Skjerm, demp lyset og sitt hos {ham}',
         hint: 'Krever noen med Ro 3+',
         requires: { skill: { id: 'deeskalering', min: 3 } },
         effect: { trivsel: 3, fagpoeng: 20, energy: -6, scope: 'paaVakt' },
@@ -589,14 +594,14 @@ export const DILEMMAS: DilemmaDef[] = [
         label: 'Gi noe å sove på',
         hint: 'Så får alle ro',
         effect: { avvik: 1, trivsel: -4 },
-        outcome: 'Han sov. Dagen etter var han mer forvirret, ustø – og falt på vei til badet.',
+        outcome: '{Han} sov. Dagen etter var {han} mer forvirret, ustø – og falt på vei til badet.',
       },
     ],
   },
   {
     id: 'dysfagi_hoste',
     title: 'Hoster ved måltid',
-    body: 'Astrid (rom 2) hoster og får våt stemme når hun drikker. Hun har hatt feber to ganger denne måneden.',
+    body: '{beboer} (rom {rom}) hoster og får våt stemme når {han} drikker. {Han} har hatt feber to ganger denne måneden.',
     from: 'Dagvakta',
     color: 'mint',
     fagligBegrunnelse:
@@ -616,12 +621,12 @@ export const DILEMMAS: DilemmaDef[] = [
         label: 'Gi bare moset mat fra nå',
         hint: 'Enkelt og trygt?',
         effect: { trivsel: -3, fagpoeng: 5 },
-        outcome: 'Hostingen avtok, men Astrid mistet matlysten. Tre uker senere var hun gått ned to kilo.',
+        outcome: 'Hostingen avtok, men {beboer} mistet matlysten. Tre uker senere var {han} gått ned to kilo.',
       },
       {
         id: 'drikk_mer',
-        label: 'Minn henne på å drikke mer',
-        hint: 'Hun trenger jo væske',
+        label: 'Minn {ham} på å drikke mer',
+        hint: '{Han} trenger jo væske',
         effect: { avvik: 1, trivsel: -4, budget: -400 },
         outcome: 'Lungebetennelse etter aspirasjon og ti dager på sykehus. Tegnene var der.',
       },
@@ -630,9 +635,10 @@ export const DILEMMAS: DilemmaDef[] = [
   {
     id: 'palliasjon_uro',
     title: 'Urolig mot slutten',
-    body: 'Olaug (rom 8) er døende. Hun er urolig, surkler og grimaserer. Sønnen spør om hun har vondt, og om hun burde på sykehus.',
+    body: '{beboer} (rom {rom}) er døende. {Han} er urolig, surkler og grimaserer. Sønnen spør om {han} har vondt, og om {han} burde på sykehus.',
     from: 'Nattevakta',
     color: 'bla',
+    triggers: { residentProfile: 'palliasjon' },
     fagligBegrunnelse:
       'Når døden er nær, er målet lindring der pasienten er. Smerte, uro, kvalme og surkling skal kartlegges og behandles fortløpende, med behovsmedisin forordnet på forhånd. Forhåndssamtaler avklarer hva pasienten ønsker før det haster.',
     kilde: 'Nasjonale faglige råd for lindrende behandling i livets sluttfase',
@@ -643,28 +649,28 @@ export const DILEMMAS: DilemmaDef[] = [
         hint: 'Krever sykepleier på vakt',
         requires: { profession: 'sykepleier' },
         effect: { fagpoeng: 45, trivsel: 6, energy: -6, scope: 'paaVakt', passXp: 10 },
-        outcome: 'Smerte og uro ble kartlagt, behovsmedisin gitt og effekten fulgt. Olaug døde rolig i grålysningen med sønnen ved senga.',
+        outcome: 'Smerte og uro ble kartlagt, behovsmedisin gitt og effekten fulgt. {beboer} døde rolig i grålysningen med sønnen ved senga.',
       },
       {
         id: 'sykehus',
-        label: 'Send henne til sykehus',
+        label: 'Send {ham} til sykehus',
         hint: 'Der har de mer utstyr',
         effect: { budget: -600, trivsel: -5, stress: 4, scope: 'paaVakt' },
-        outcome: 'Olaug døde på en båre i akuttmottaket. Det var ikke det hun og familien hadde ønsket i forhåndssamtalen.',
+        outcome: '{beboer} døde på en båre i akuttmottaket. Det var ikke det {han} og familien hadde ønsket i forhåndssamtalen.',
       },
       {
         id: 'vent',
         label: 'Vent på legevisitten i morgen',
         hint: 'Det er jo midt på natta',
         effect: { avvik: 1, trivsel: -6, stress: 6, scope: 'paaVakt' },
-        outcome: 'Det ble en lang og vond natt for Olaug, for sønnen og for nattevakta.',
+        outcome: 'Det ble en lang og vond natt for {beboer}, for sønnen og for nattevakta.',
       },
     ],
   },
   {
     id: 'taushetsplikt_nabo',
     title: 'Naboen ringer',
-    body: '«Jeg er bare en gammel nabo av Reidar. Hvordan går det egentlig med ham? Er det kreft?» Hun har ringt tre ganger.',
+    body: '«Jeg er bare en gammel nabo av {beboer}. Hvordan går det egentlig med {ham}? Er det kreft?» Hun har ringt tre ganger.',
     from: 'Dagvakta',
     color: 'gul',
     fagligBegrunnelse:
@@ -673,33 +679,34 @@ export const DILEMMAS: DilemmaDef[] = [
     options: [
       {
         id: 'spor_reidar',
-        label: 'Spør Reidar om hva hun kan få vite',
-        hint: 'Det er hans opplysninger',
+        label: 'Spør {beboer} om hva hun kan få vite',
+        hint: 'Det er {hans} opplysninger',
         effect: { trivsel: 3, fagpoeng: 20 },
-        outcome: 'Reidar ville gjerne ha besøk, men ikke at diagnosen ble nevnt. Naboen kom på torsdag med wienerbrød.',
+        outcome: '{beboer} ville gjerne ha besøk, men ikke at diagnosen ble nevnt. Naboen kom på torsdag med wienerbrød.',
       },
       {
         id: 'fortell_litt',
         label: 'Si litt – hun mener det jo godt',
         hint: 'Bare det viktigste',
         effect: { avvik: 1, trivsel: -3 },
-        outcome: 'Innen helga visste hele borettslaget det. Reidars datter ringte, og hun var ikke blid.',
+        outcome: 'Innen helga visste hele borettslaget det. {beboer}s datter ringte, og hun var ikke blid.',
       },
       {
         id: 'avvis',
         label: 'Avvis henne: «Vi kan ikke si noe»',
         hint: 'Korrekt, men kaldt',
         effect: { fagpoeng: 8, trivsel: -1 },
-        outcome: 'Taushetsplikten ble overholdt. Reidar fikk aldri vite at noen spurte etter ham.',
+        outcome: 'Taushetsplikten ble overholdt. {beboer} fikk aldri vite at noen spurte etter {ham}.',
       },
     ],
   },
   {
     id: 'gps_vandring',
-    title: 'GPS til Trygve?',
-    body: 'Trygve (rom 4) gikk ut i tøflene i natt og ble funnet ved busstoppet. Sønnen vil ha GPS på ham. Trygve skjønner ikke spørsmålet.',
+    title: 'GPS til {beboer}?',
+    body: '{beboer} (rom {rom}) gikk ut i tøflene i natt og ble funnet ved busstoppet. Sønnen vil ha GPS på {ham}. {beboer} skjønner ikke spørsmålet.',
     from: 'Primærkontakten',
     color: 'bla',
+    triggers: { residentProfile: 'kognitiv' },
     minTier: 1,
     fagligBegrunnelse:
       'Varslings- og lokaliseringsteknologi kan brukes for pasienter uten samtykkekompetanse når det er nødvendig for å hindre skade og er i pasientens interesse. Det krever en dokumentert vurdering og vedtak – pårørendes ønske er ikke nok.',
@@ -711,28 +718,28 @@ export const DILEMMAS: DilemmaDef[] = [
         hint: 'Krever noen med Dok. 3+',
         requires: { skill: { id: 'dokumentasjon', min: 3 } },
         effect: { fagpoeng: 40, trivsel: 4, budget: -500, passXp: 10 },
-        outcome: 'Vurderingen ble journalført, vedtaket fattet og pårørende informert. Trygve går tur igjen – og dere vet hvor han er.',
+        outcome: 'Vurderingen ble journalført, vedtaket fattet og pårørende informert. {beboer} går tur igjen – og dere vet hvor {han} er.',
       },
       {
         id: 'bare_gps',
         label: 'Bare sett på GPS-en',
         hint: 'Sønnen har jo sagt ja',
         effect: { avvik: 1, trivsel: 2, budget: -500 },
-        outcome: 'Det virket, helt til tilsynet spurte etter vedtaket. Pårørende kan ikke samtykke til dette på hans vegne.',
+        outcome: 'Det virket, helt til tilsynet spurte etter vedtaket. Pårørende kan ikke samtykke til dette på {hans} vegne.',
       },
       {
         id: 'las_dora',
         label: 'Lås avdelingsdøra om natta',
-        hint: 'Da kommer han ingen vei',
+        hint: 'Da kommer {han} ingen vei',
         effect: { avvik: 2, trivsel: -5 },
-        outcome: 'Trygve sto og rev i døra i to timer. Innlåsing er tvang og krever et helt annet vedtak.',
+        outcome: '{beboer} sto og rev i døra i to timer. Innlåsing er tvang og krever et helt annet vedtak.',
       },
     ],
   },
   {
     id: 'uvi_stix',
     title: 'Urinen lukter',
-    body: 'Bjørg (rom 5) har sterk lukt av urinen. Ingen feber, ingen svie, hun er som vanlig. Vikaren har stixet: utslag på alt. «Hun må ha antibiotika!»',
+    body: '{beboer} (rom {rom}) har sterk lukt av urinen. Ingen feber, ingen svie, {han} er som vanlig. Vikaren har stixet: utslag på alt. «{Han} må ha antibiotika!»',
     from: 'Aftenvakta',
     color: 'mint',
     fagligBegrunnelse:
@@ -745,21 +752,21 @@ export const DILEMMAS: DilemmaDef[] = [
         hint: 'Krever noen med Medisin 3+',
         requires: { skill: { id: 'medikament', min: 3 } },
         effect: { fagpoeng: 30, trivsel: 2 },
-        outcome: 'Ingen symptomer, ingen behandling. Mer drikke ga lysere urin, og Bjørg slapp en kur hun ikke trengte.',
+        outcome: 'Ingen symptomer, ingen behandling. Mer drikke ga lysere urin, og {beboer} slapp en kur {han} ikke trengte.',
       },
       {
         id: 'krev_kur',
         label: 'Ring legen og be om antibiotika',
         hint: 'For sikkerhets skyld',
         effect: { trivsel: -3, budget: -300, avvik: 1 },
-        outcome: 'Bjørg fikk kur, diaré og soppinfeksjon. Urinen lukter fortsatt.',
+        outcome: '{beboer} fikk kur, diaré og soppinfeksjon. Urinen lukter fortsatt.',
       },
       {
         id: 'dyrkning',
         label: 'Send urinprøve til dyrkning',
         hint: 'Så vet vi i hvert fall',
         effect: { budget: -200, fagpoeng: 5 },
-        outcome: 'Prøven viste bakterier – som hos mange på Bjørgs alder. Legen ville ikke behandle uten symptomer.',
+        outcome: 'Prøven viste bakterier – som hos mange på {beboer}s alder. Legen ville ikke behandle uten symptomer.',
       },
     ],
   },
@@ -799,7 +806,7 @@ export const DILEMMAS: DilemmaDef[] = [
   {
     id: 'journal_etterslep',
     title: 'Journalen henger etter',
-    body: 'Gudrun (rom 1) falt på lørdag. I dag er det tirsdag, og det står ingenting i journalen. «Vi sa det jo i rapporten», sier helgevakta.',
+    body: '{beboer} (rom {rom}) falt på lørdag. I dag er det tirsdag, og det står ingenting i journalen. «Vi sa det jo i rapporten», sier helgevakta.',
     from: 'Fagutviklingssykepleier',
     color: 'bla',
     fagligBegrunnelse:
@@ -819,7 +826,7 @@ export const DILEMMAS: DilemmaDef[] = [
         label: 'Muntlig rapport får holde',
         hint: 'Alle vet det jo',
         effect: { avvik: 1, trivsel: -2 },
-        outcome: 'Fysioterapeuten visste det ikke. Gudrun ble tatt med på gangtrening med et brukket håndledd ingen hadde oppdaget.',
+        outcome: 'Fysioterapeuten visste det ikke. {beboer} ble tatt med på gangtrening med et brukket håndledd ingen hadde oppdaget.',
       },
       {
         id: 'skriv_tilbake',
@@ -837,10 +844,10 @@ export const DILEMMAS: DilemmaDef[] = [
   {
     id: 'klage_statsforvalter',
     title: 'Klagen har kommet',
-    body: 'Datteren til Solveig har klaget skriftlig – med kopi til Statsforvalteren. De ber om redegjørelse, journalutskrift og ernæringsplan innen tre uker.',
+    body: 'Datteren til {beboer} har klaget skriftlig – med kopi til Statsforvalteren. De ber om redegjørelse, journalutskrift og ernæringsplan innen tre uker.',
     from: 'Enhetsleder',
     color: 'rosa',
-    followUpOnly: true,
+    triggers: { isFollowUpOnly: true },
     fagligBegrunnelse:
       'En klage behandles først av tjenesten selv. Blir den ikke imøtekommet, går den videre til Statsforvalteren, som kan be om redegjørelse og journal. Åpenhet, beklagelse og konkrete tiltak tidlig er både rett og klokt.',
     kilde: 'Pasient- og brukerrettighetsloven kap. 7',
@@ -871,11 +878,11 @@ export const DILEMMAS: DilemmaDef[] = [
   },
   {
     id: 'vekttap_forverret',
-    title: 'Arne orker ikke mer',
-    body: 'Arne (rom 2) har gått ned to kilo til. Han er slapp, svimmel og blir liggende i senga. Buksa henger på ham.',
+    title: '{beboer} orker ikke mer',
+    body: '{beboer} (rom {rom}) har gått ned to kilo til. {Han} er slapp, svimmel og blir liggende i senga. Buksa henger på {ham}.',
     from: 'Primærkontakten',
     color: 'rosa',
-    followUpOnly: true,
+    triggers: { isFollowUpOnly: true },
     fagligBegrunnelse:
       'Underernæring svekker muskelkraft, immunforsvar og sårtilheling, og øker risikoen for fall og infeksjoner. Jo senere tiltak settes inn, desto lengre tid tar det å snu. Ved fortsatt vekttap skal lege kobles inn og planen evalueres.',
     kilde: 'Nasjonal faglig retningslinje for forebygging og behandling av underernæring',
@@ -897,7 +904,7 @@ export const DILEMMAS: DilemmaDef[] = [
       },
       {
         id: 'innleggelse',
-        label: 'Legg ham inn på sykehus',
+        label: 'Legg {ham} inn på sykehus',
         hint: 'Nå er det for sent å løse her',
         effect: { budget: -1800, avvik: 2, trivsel: -5, stress: 5, scope: 'alle' },
         outcome: 'Innlagt med alvorlig underernæring og dehydrering. Epikrisen spør hvorfor vekttapet ikke ble fulgt opp.',
@@ -907,10 +914,10 @@ export const DILEMMAS: DilemmaDef[] = [
   {
     id: 'trykksaar_aapent',
     title: 'Såret har åpnet seg',
-    body: 'Blemma på hælen til Ingeborg har sprukket. Såret er to centimeter, væsker og lukter. Hun vil ikke stå på foten.',
+    body: 'Blemma på hælen til {beboer} har sprukket. Såret er to centimeter, væsker og lukter. {Han} vil ikke stå på foten.',
     from: 'Dagvakta',
     color: 'rosa',
-    followUpOnly: true,
+    triggers: { isFollowUpOnly: true },
     fagligBegrunnelse:
       'De fleste trykksår kan forebygges. Når huden først er brutt, tar tilhelingen uker til måneder og krever avlastning, riktig sårbehandling og god ernæring. Åpne trykksår skal klassifiseres, dokumenteres og følges opp med plan.',
     kilde: 'Tiltakspakke for forebygging av trykksår (I trygge hender 24-7)',
@@ -942,10 +949,10 @@ export const DILEMMAS: DilemmaDef[] = [
   {
     id: 'medisinfeil_gitt',
     title: 'Feil dose ble gitt',
-    body: 'Samme feil i dosetten igjen – og denne gangen ble den gitt. Kåre (rom 3) har fått dobbel dose blodfortynnende i to dager.',
+    body: 'Samme feil i dosetten igjen – og denne gangen ble den gitt. {beboer} (rom {rom}) har fått dobbel dose blodfortynnende i to dager.',
     from: 'Nattevakta',
     color: 'rosa',
-    followUpOnly: true,
+    triggers: { isFollowUpOnly: true },
     fagligBegrunnelse:
       'Pasienten har rett til informasjon når hen er påført skade eller alvorlige komplikasjoner. Feil skal meldes og brukes til å forbedre rutinene – en feil som gjentar seg, er en systemsvikt, ikke en enkeltpersons uhell.',
     kilde: 'Pasient- og brukerrettighetsloven § 3-2 · Forskrift om ledelse og kvalitetsforbedring',
@@ -963,12 +970,12 @@ export const DILEMMAS: DilemmaDef[] = [
         label: 'Ring legevakta og følg rådene',
         hint: 'Ingen sykepleier å spørre',
         effect: { avvik: 2, stress: 6, scope: 'paaVakt', budget: -500 },
-        outcome: 'Kåre ble sendt inn til observasjon over natta. Det gikk bra, men det var nære på.',
+        outcome: '{beboer} ble sendt inn til observasjon over natta. Det gikk bra, men det var nære på.',
       },
       {
         id: 'skjul',
         label: 'Juster dosetten og si ingenting',
-        hint: 'Han merker det vel ikke',
+        hint: '{Han} merker det vel ikke',
         effect: { avvik: 3, trivsel: -8, stress: 10, scope: 'alle' },
         outcome: 'Neseblødningen på kvelden lot seg ikke stoppe. Nå er det både en alvorlig hendelse og et forsøk på å skjule den.',
       },
@@ -977,10 +984,10 @@ export const DILEMMAS: DilemmaDef[] = [
   {
     id: 'alarm_oversett',
     title: 'Alarmen ingen hørte',
-    body: 'Gerd (rom 5) lå på badegulvet i to timer i natt. Sengealarmen hennes var en av dem som ble skrudd av.',
+    body: '{beboer} (rom {rom}) lå på badegulvet i to timer i natt. Sengealarmen {hans} var en av dem som ble skrudd av.',
     from: 'Nattevakta',
     color: 'rosa',
-    followUpOnly: true,
+    triggers: { isFollowUpOnly: true },
     fagligBegrunnelse:
       'Varslingsteknologi er en del av helsehjelpen når den først er tatt i bruk. Å slå av varsler uten en individuell vurdering fjerner et sikkerhetsnett beboeren er avhengig av. Riktig tiltak mot alarmtretthet er tilpasning, ikke utkobling.',
     kilde: 'Helse- og omsorgstjenesteloven § 4-1 · Pasient- og brukerrettighetsloven § 4-6 a',
@@ -991,7 +998,7 @@ export const DILEMMAS: DilemmaDef[] = [
         hint: 'Krever noen med Dok. 2+',
         requires: { skill: { id: 'dokumentasjon', min: 2 } },
         effect: { fagpoeng: 20, avvik: 1, energy: -8, scope: 'paaVakt' },
-        outcome: 'Alle alarmer er på igjen, nå med innstillinger per beboer. Gerd er forslått, men uten brudd.',
+        outcome: 'Alle alarmer er på igjen, nå med innstillinger per beboer. {beboer} er forslått, men uten brudd.',
       },
       {
         id: 'ekstra_tilsyn',
@@ -1010,8 +1017,3 @@ export const DILEMMAS: DilemmaDef[] = [
     ],
   },
 ]
-
-export const DILEMMA_BY_ID: Record<string, DilemmaDef> = Object.fromEntries(DILEMMAS.map((d) => [d.id, d]))
-
-/** Dilemmaer som kan dukke opp av seg selv (oppfølginger er unntatt). */
-export const RANDOM_DILEMMAS: DilemmaDef[] = DILEMMAS.filter((d) => !d.followUpOnly)

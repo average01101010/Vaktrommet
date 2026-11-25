@@ -24,11 +24,13 @@ src/
 ├─ types/       Datamodell: ansatte, turnus, beboere/avdelingstyper, oppgraderinger, dilemmaer, GameState
 ├─ data/        Innhold og balanse: balance.ts er eneste kilde til tall motoren bruker
 │   ├─ residents.ts    Kliniske beboerprofiler (behov per vakt og egenskap)
-│   └─ wards.ts        Avdelingstyper med beboermiks, modifikatorer og fagbok
+│   ├─ wards.ts        Avdelingstyper med beboermiks, modifikatorer og fagbok
+│   └─ dilemmas/       Dilemmabanken, én fil per tema, og historiekjedene
 ├─ engine/      Ren, deterministisk spillmotor (ingen nettleser-API-er)
 │   ├─ residents.ts    Innkomst/utskrivning og computeDemand(): behov summert fra beboerne
 │   ├─ synergy.ts      evaluateShift(): dekning uten krysskompensasjon, synergier, rater
 │   ├─ simulation.ts   step / simulate / catchUp: én fast steglengde for alt
+│   ├─ dilemmas.ts     Kontekstuell utvelgelse, beboer-injeksjon i tekstene og historiekjeder
 │   ├─ migrate.ts      migrateGameState(): løfter eldre lagringer uten å nullstille
 │   ├─ scoring.ts      Driftsligaen og Kvalitetsindeksen
 │   └─ actions.ts      Alle spillerhandlinger som rene funksjoner, inkl. avdelingsrotasjon
@@ -78,12 +80,26 @@ Scenen i `src/components/ward/scene/` er et rent 2D-canvas som speiler spilltils
 - **Progresjon:** Antall dører følger sengetallet (`doorCountFor` i `scene/layout.ts`), og hver
   avdelingstype har eget interiør og egen palett (`WARD_LOOKS`).
 
+## Dilemmaene
+
+Banken i `src/data/dilemmas/` har 105 dilemmaer. Hele lista, med valg, effekter, faglig begrunnelse og
+kilde, står i [`docs/dilemma-gjennomgang.md`](docs/dilemma-gjennomgang.md). Fila genereres med
+`npm run docs:dilemmas`, og en test feiler hvis den er utdatert.
+
+- **Kontekst:** `triggers` på et dilemma avgjør når det kan dukke opp: avdelingstype, vakt, beboerprofil,
+  snittstress og trivsel. Kontekstuelle dilemmaer veier tyngre i trekningen enn de generelle.
+- **Beboeren i teksten:** `{beboer}` og `{rom}` fylles ut med en av beboerne på avdelingen når lappen
+  henges opp. `{han}`, `{hans}`, `{ham}` og `{forelder}` følger kjønnet til navnet.
+- **Historiekjeder:** Et dilemma med `chain` er et steg i en historie over to eller tre steg. Valget
+  planlegger neste steg, og samme beboer følger saken hele veien.
+- **Variasjon:** De 30 siste dilemmaene gjentas ikke (`BALANCE.dilemmaRecent`).
+
 ## Balanse og gjenbesøk
 
 - **Belønninger som skalerer:** Kr og Fagpoeng i Tilsynspasset og Morgenkaffe er oppgitt i spilltimer
   (`budgetHours` / `fagpoengHours`) og regnes om med `resolveReward()` ut fra dagens inntjening.
 - **Dilemma-oppfølging:** Valg med `followUp` utsetter saken. Et strengere oppfølgingsdilemma
-  (`followUpOnly`) henges opp 24–48 spilltimer senere.
+  (`triggers.isFollowUpOnly`) henges opp 24–48 spilltimer senere.
 - **Oppdagelsesbok:** Åtte av elleve bonus-synergier starter skjult med faglig hint. De virker uansett,
   og låses opp med en Kaffekopp første gang kombinasjonen treffes.
 - **Takkekort:** Skrives en beboer ut mens trivselen er over 75 %, løftes trivselsmålet 10 % i 4 spilltimer.

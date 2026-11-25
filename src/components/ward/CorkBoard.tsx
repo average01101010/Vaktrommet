@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { DILEMMA_BY_ID } from '@/data/dilemmas'
+import { DILEMMA_BY_ID, DILEMMA_CHAINS } from '@/data/dilemmas'
 import { PROFESSIONS, SKILLS } from '@/data/professions'
+import { RESIDENT_PROFILES } from '@/data/residents'
 import { meetsRequirement } from '@/engine/actions'
+import { renderDilemma } from '@/engine/dilemmas'
 import { gameMinutesToRealMs } from '@/engine/time'
 import { cx, fmtDuration, fmtInt } from '@/lib/format'
 import { useGame } from '@/store/gameStore'
 import { useGameState } from '@/store/selectors'
-import type { ActiveDilemma, DilemmaResolution, Effect, Requirement } from '@/types'
+import type { ActiveDilemma, DilemmaDef, DilemmaResolution, Effect, Requirement } from '@/types'
 import { Chip } from '../ui/bits'
 import { Icon } from '../ui/Icon'
 import { Sheet } from '../ui/Sheet'
@@ -43,9 +45,15 @@ export function EffectChips({ effect }: { effect: Effect }) {
   )
 }
 
+/** «Del 2 av 3» for steg i en historiekjede. */
+const chainLabel = (def: DilemmaDef): string | null =>
+  def.chain ? `Del ${def.chain.step} av ${DILEMMA_CHAINS[def.chain.id]?.steps ?? def.chain.step}` : null
+
 function PostIt({ note, onOpen, index }: { note: ActiveDilemma; onOpen: () => void; index: number }) {
-  const def = DILEMMA_BY_ID[note.defId]
-  if (!def) return null
+  const raw = DILEMMA_BY_ID[note.defId]
+  if (!raw) return null
+  const def = renderDilemma(raw, note.subject)
+  const part = note.followUpOf ? chainLabel(def) : null
   return (
     <button
       onClick={onOpen}
@@ -57,8 +65,13 @@ function PostIt({ note, onOpen, index }: { note: ActiveDilemma; onOpen: () => vo
     >
       <span className="knappenal absolute top-1.5 left-1/2 -translate-x-1/2" />
       {note.followUpOf && (
-        <span className="absolute top-1 right-1 rotate-[8deg] rounded border-[1.5px] border-fare bg-fare-soft/90 px-1 font-mono text-[8px] font-extrabold tracking-wider text-fare uppercase">
-          Oppfølging
+        <span
+          className={cx(
+            'absolute top-1 right-1 rotate-[8deg] rounded border-[1.5px] px-1 font-mono text-[8px] font-extrabold tracking-wider uppercase',
+            part ? 'border-petrol bg-petrol-soft/90 text-petrol' : 'border-fare bg-fare-soft/90 text-fare',
+          )}
+        >
+          {part ?? 'Oppfølging'}
         </span>
       )}
       <span className="hand line-clamp-2 block text-[1.12rem] leading-[1] font-bold text-blekk sm:text-[1.3rem]">{def.title}</span>
@@ -76,7 +89,13 @@ export function CorkBoard() {
 
   const notes = game.dilemmas.active
   const open = notes.find((n) => n.uid === openUid) ?? null
-  const def = open ? DILEMMA_BY_ID[open.defId] : result ? DILEMMA_BY_ID[result.defId] : null
+  const rawDef = open ? DILEMMA_BY_ID[open.defId] : result ? DILEMMA_BY_ID[result.defId] : null
+  // Tekstene fylles ut for beboeren saken gjelder – også etter at lappen er tatt ned.
+  const subject = open?.subject ?? result?.subject
+  const def = rawDef ? renderDilemma(rawDef, subject) : null
+  const chain = def?.chain ? DILEMMA_CHAINS[def.chain.id] : null
+  // En utsatt sak kommer tilbake som straff; neste steg i en kjede er bare fortsettelsen.
+  const postponed = Boolean(open?.followUpOf) && !def?.chain
   const nextIn = gameMinutesToRealMs(Math.max(0, game.dilemmas.nextAt - game.minute))
 
   const close = () => {
@@ -103,7 +122,7 @@ export function CorkBoard() {
         )}
       </div>
 
-      <Sheet open={Boolean(def && (open || result))} onClose={close} title={result ? 'Slik gikk det' : open?.followUpOf ? 'Saken du utsatte er tilbake' : 'Post-it fra vaktrommet'}>
+      <Sheet open={Boolean(def && (open || result))} onClose={close} title={result ? 'Slik gikk det' : postponed ? 'Saken du utsatte er tilbake' : open?.followUpOf ? 'Saken fortsetter' : 'Post-it fra vaktrommet'}>
         {def && (
           <>
             <div className={cx('postit mx-auto mt-1 max-w-sm rotate-[-1deg] px-5 pt-7 pb-5', `postit-${def.color}`)}>
@@ -113,18 +132,40 @@ export function CorkBoard() {
               <div className="hand mt-2 text-right text-[1.05rem] text-blekk/60">– {def.from}</div>
             </div>
 
+            {(chain || subject) && (
+              <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+                {chain && def.chain && (
+                  <Chip tone="petrol" className="font-bold">
+                    {chain.title} · del {def.chain.step} av {chain.steps}
+                  </Chip>
+                )}
+                {subject && (
+                  <Chip>
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: RESIDENT_PROFILES[subject.profile]?.color }} />
+                    {subject.name} · rom {subject.room} · {RESIDENT_PROFILES[subject.profile]?.short}
+                  </Chip>
+                )}
+              </div>
+            )}
+
             {result ? (
               <div className="mt-5 animate-inn text-center">
                 <p className="mx-auto max-w-sm text-[14.5px] leading-snug font-semibold text-blekk">{result.outcome}</p>
                 <div className="mt-3">
                   <EffectChips effect={result.applied} />
                 </div>
-                {result.followUpScheduled && (
-                  <p className="mt-3 flex items-start gap-2 rounded-xl bg-rav-soft/80 px-3 py-2 text-left text-[12.5px] leading-snug font-bold text-rav-2">
-                    <Icon name="klokke" size={15} className="mt-px shrink-0" />
-                    Saken er utsatt, ikke løst. Den kommer tilbake om ett til to døgn – og da blir den dyrere.
-                  </p>
-                )}
+                {result.followUpScheduled &&
+                  (result.followUpKind === 'kjede' ? (
+                    <p className="mt-3 flex items-start gap-2 rounded-xl bg-petrol-soft/80 px-3 py-2 text-left text-[12.5px] leading-snug font-bold text-petrol">
+                      <Icon name="klokke" size={15} className="mt-px shrink-0" />
+                      Dette er ikke siste ord i saken. Den dukker opp igjen på tavla om et døgns tid.
+                    </p>
+                  ) : (
+                    <p className="mt-3 flex items-start gap-2 rounded-xl bg-rav-soft/80 px-3 py-2 text-left text-[12.5px] leading-snug font-bold text-rav-2">
+                      <Icon name="klokke" size={15} className="mt-px shrink-0" />
+                      Saken er utsatt, ikke løst. Den kommer tilbake om ett til to døgn – og da blir den dyrere.
+                    </p>
+                  ))}
                 <div className="mt-4 rounded-2xl border border-petrol/15 bg-petrol-soft/60 px-4 py-3 text-left">
                   <div className="flex items-center gap-1.5 text-[10.5px] font-extrabold tracking-[0.1em] text-petrol uppercase">
                     <Icon name="kurs" size={14} /> Faglig begrunnelse
@@ -138,7 +179,7 @@ export function CorkBoard() {
               </div>
             ) : (
               <div className="mt-5 space-y-2">
-                {open?.followUpOf && (
+                {postponed && (
                   <p className="flex items-start gap-2 rounded-xl bg-fare-soft px-3 py-2 text-[12.5px] leading-snug font-bold text-fare">
                     <Icon name="avvik" size={15} className="mt-px shrink-0" />
                     Dette er følgen av at saken ble utsatt. Ingen av valgene er gratis nå.

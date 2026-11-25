@@ -32,6 +32,7 @@ import type {
   UpgradeId,
   WardTypeId,
 } from '@/types'
+import { fillText } from './dilemmas'
 import { migrateGameState } from './migrate'
 import { maxSkillLevelFor, modifiersFor, slotsFor } from './modifiers'
 import { syncResidents } from './residents'
@@ -327,20 +328,35 @@ export function resolveDilemma(
   d.dilemmas.active = d.dilemmas.active.filter((a) => a.uid !== uid)
   d.lifetime.dilemmasResolved++
 
-  // Et utsatt valg løser ikke saken: den kommer tilbake, strengere, om 1–2 døgn.
-  let followUpScheduled = false
+  // Etterspill: en utsatt sak kommer tilbake strengere, og en historiekjede går videre
+  // til neste steg. Beboeren saken gjelder følger med hele veien.
+  let followUpKind: DilemmaResolution['followUpKind']
   const follow = option.followUp
-  if (follow && DILEMMA_BY_ID[follow.id] && !d.dilemmas.followUps.some((f) => f.defId === follow.id)) {
+  const next = follow && DILEMMA_BY_ID[follow.id]
+  if (follow && next && !d.dilemmas.followUps.some((f) => f.defId === follow.id)) {
     const hours = randInt(d, follow.afterHours[0], follow.afterHours[1])
-    d.dilemmas.followUps.push({ defId: follow.id, dueAt: d.minute + hours * MIN_PER_HOUR, sourceId: def.id })
-    followUpScheduled = true
+    d.dilemmas.followUps.push({
+      defId: follow.id,
+      dueAt: d.minute + hours * MIN_PER_HOUR,
+      sourceId: def.id,
+      ...(active.subject ? { subject: active.subject } : {}),
+    })
+    followUpKind = next.chain ? 'kjede' : 'utsatt'
   }
 
   syncTier(d)
   return {
     ok: true,
     state: d,
-    resolution: { defId: def.id, optionId, outcome: option.outcome, applied: e, followUpScheduled },
+    resolution: {
+      defId: def.id,
+      optionId,
+      outcome: fillText(option.outcome, active.subject),
+      applied: e,
+      followUpScheduled: Boolean(followUpKind),
+      ...(followUpKind ? { followUpKind } : {}),
+      ...(active.subject ? { subject: active.subject } : {}),
+    },
   }
 }
 

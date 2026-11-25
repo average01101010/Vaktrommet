@@ -740,8 +740,8 @@ describe('handlinger og innhold', () => {
   })
 
   it('alle dilemmaer har faglig begrunnelse, kilde og tre unike valg', () => {
-    expect(RANDOM_DILEMMAS).toHaveLength(24)
-    expect(DILEMMAS.filter((d) => d.followUpOnly)).toHaveLength(5)
+    expect(DILEMMAS.length).toBeGreaterThanOrEqual(85)
+    expect(RANDOM_DILEMMAS.length + DILEMMAS.filter((d) => d.triggers?.isFollowUpOnly).length).toBe(DILEMMAS.length)
     expect(new Set(DILEMMAS.map((d) => d.id)).size).toBe(DILEMMAS.length)
     for (const d of DILEMMAS) {
       expect(d.fagligBegrunnelse.length, d.id).toBeGreaterThan(60)
@@ -1059,13 +1059,15 @@ describe('oppfølging av utsatte saker', () => {
 
   it('alle oppfølginger peker på et dilemma som bare kan komme som oppfølging', () => {
     const links = DILEMMAS.flatMap((d) => d.options.filter((o) => o.followUp).map((o) => o.followUp!))
-    expect(links).toHaveLength(5)
-    for (const link of links) {
-      expect(DILEMMA_BY_ID[link.id]?.followUpOnly, link.id).toBe(true)
+    // Utsatte saker (ikke historiekjeder) kommer tilbake etter ett til to døgn.
+    const postponed = links.filter((link) => !DILEMMA_BY_ID[link.id]?.chain)
+    expect(postponed).toHaveLength(5)
+    for (const link of links) expect(DILEMMA_BY_ID[link.id]?.triggers?.isFollowUpOnly, link.id).toBe(true)
+    for (const link of postponed) {
       expect(link.afterHours[0]).toBeGreaterThanOrEqual(24)
       expect(link.afterHours[1]).toBeLessThanOrEqual(48)
     }
-    expect(RANDOM_DILEMMAS.some((d) => d.followUpOnly)).toBe(false)
+    expect(RANDOM_DILEMMAS.some((d) => d.triggers?.isFollowUpOnly)).toBe(false)
   })
 
   it('et utsatt valg planlegger en oppfølging 1–2 spilldøgn fram', () => {
@@ -1097,7 +1099,7 @@ describe('oppfølging av utsatte saker', () => {
   })
 
   it('oppfølgingen er strengere enn det beste førstevalget, og har ingen gratis utvei', () => {
-    for (const def of DILEMMAS.filter((d) => d.followUpOnly)) {
+    for (const def of DILEMMAS.filter((d) => d.triggers?.isFollowUpOnly && !d.chain)) {
       for (const o of def.options) {
         const e = o.effect
         const hasCost = (e.avvik ?? 0) > 0 || (e.budget ?? 0) < 0 || (e.trivsel ?? 0) < 0 || (e.stress ?? 0) > 0
@@ -1124,7 +1126,7 @@ describe('oppfølging av utsatte saker', () => {
       s.dilemmas.active = []
     }
     expect(seen.size).toBeGreaterThan(12)
-    expect([...seen].some((id) => DILEMMA_BY_ID[id].followUpOnly)).toBe(false)
+    expect([...seen].some((id) => DILEMMA_BY_ID[id].triggers?.isFollowUpOnly)).toBe(false)
   })
 })
 

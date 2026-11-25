@@ -1,3 +1,5 @@
+import type { ResidentProfileId, WardTypeId } from './residents'
+import type { ShiftId } from './roster'
 import type { Profession, SkillId } from './staff'
 
 /** Umiddelbar konsekvens av et valg. Beløp skaleres med avdelingsnivå i motoren. */
@@ -32,10 +34,51 @@ export interface DilemmaOption {
   /** Vises etter at valget er tatt. */
   outcome: string
   /**
-   * Valget utsetter saken: et oppfølgingsdilemma (med strengere konsekvenser)
-   * dukker opp etter så mange spilltimer [min, maks].
+   * Valget får et etterspill: et nytt dilemma dukker opp etter så mange
+   * spilltimer [min, maks]. Peker det på en utsatt sak, kommer den tilbake
+   * strengere; peker det på neste steg i en historiekjede, fortsetter historien.
    */
   followUp?: { id: string; afterHours: [number, number] }
+}
+
+/**
+ * Kontekst som må stemme for at et dilemma skal kunne dukke opp av seg selv.
+ * Alle felter er valgfrie, og alle som er satt må være oppfylt.
+ */
+export interface DilemmaTriggers {
+  /** Bare på disse avdelingstypene. */
+  wardTypes?: WardTypeId[]
+  /** Bare mens en av disse vaktene går. */
+  shifts?: ShiftId[]
+  /**
+   * Krever minst én beboer med denne profilen. Beboeren settes inn i tekstene
+   * via plassholderne `{beboer}` og `{rom}`.
+   */
+  residentProfile?: ResidentProfileId
+  /**
+   * Snittstress i hele staben må være minst dette (0–100). Snittet teller også
+   * dem som har fri, så 30 er allerede en presset avdeling.
+   */
+  minStress?: number
+  /** Trivselen på avdelingen må være høyst dette (0–100). */
+  maxTrivsel?: number
+  /** Dukker bare opp som oppfølging eller neste steg i en kjede – aldri tilfeldig. */
+  isFollowUpOnly?: boolean
+}
+
+/** Plassen et dilemma har i en flertrinns historie. */
+export interface DilemmaChainRef {
+  /** Nøkkel i `DILEMMA_CHAINS`. */
+  id: string
+  step: 1 | 2 | 3
+}
+
+/** Beboeren et dilemma handler om – et øyeblikksbilde, så teksten står seg selv etter utskrivning. */
+export interface DilemmaSubject {
+  residentId: number
+  name: string
+  room: number
+  profile: ResidentProfileId
 }
 
 export type PostItColor = 'gul' | 'rosa' | 'mint' | 'bla'
@@ -49,8 +92,10 @@ export interface DilemmaDef {
   from: string
   color: PostItColor
   minTier?: number
-  /** Dukker bare opp som oppfølging av et utsatt valg – aldri tilfeldig. */
-  followUpOnly?: boolean
+  /** Når dilemmaet kan dukke opp. Uten triggere passer det overalt. */
+  triggers?: DilemmaTriggers
+  /** Steg i en historiekjede. */
+  chain?: DilemmaChainRef
   /** Faglig begrunnelse som vises sammen med utfallet. */
   fagligBegrunnelse: string
   /** Kort kildehenvisning (lov, retningslinje eller verktøy). */
@@ -67,6 +112,8 @@ export interface ActiveDilemma {
   tilt: number
   /** Id-en til dilemmaet denne lappen er en oppfølging av. */
   followUpOf?: string
+  /** Beboeren lappen handler om, hvis teksten bruker `{beboer}`/`{rom}`. */
+  subject?: DilemmaSubject
 }
 
 /** En utsatt sak som kommer tilbake. */
@@ -76,6 +123,8 @@ export interface ScheduledFollowUp {
   dueAt: number
   /** Dilemmaet der saken ble utsatt. */
   sourceId: string
+  /** Beboeren saken gjelder – følger med gjennom hele kjeden. */
+  subject?: DilemmaSubject
 }
 
 export interface DilemmaState {
@@ -93,6 +142,10 @@ export interface DilemmaResolution {
   optionId: string
   outcome: string
   applied: Effect
-  /** Saken ble utsatt og kommer tilbake som oppfølging. */
+  /** Valget får et etterspill som dukker opp senere. */
   followUpScheduled: boolean
+  /** `utsatt`: saken kommer tilbake strengere. `kjede`: historien fortsetter. */
+  followUpKind?: 'utsatt' | 'kjede'
+  /** Beboeren saken gjaldt, så lappen kan vises også etter at den er tatt ned. */
+  subject?: DilemmaSubject
 }
