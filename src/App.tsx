@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { BottomNav, type TabId } from '@/components/layout/BottomNav'
+import { DiscoverySheet } from '@/components/layout/DiscoverySheet'
 import { AdOverlay, OfflineReportSheet, Onboarding, Toasts } from '@/components/layout/Overlays'
 import { TopBar } from '@/components/layout/TopBar'
 import { LeagueTab } from '@/components/league/LeagueTab'
@@ -8,7 +9,7 @@ import { UpgradesTab } from '@/components/upgrades/UpgradesTab'
 import { WardTab } from '@/components/ward/WardTab'
 import { INSPECTION_TIERS } from '@/data/balance'
 import { UPGRADES } from '@/data/upgrades'
-import { inspectionQualified, upgradeStatus } from '@/engine/actions'
+import { inspectionQualified, streakStatus, upgradeStatus } from '@/engine/actions'
 import { inspectionAverage } from '@/engine/simulation'
 import { useGame } from '@/store/gameStore'
 import { useGameLoop } from '@/store/useGameLoop'
@@ -17,6 +18,7 @@ export default function App() {
   useGameLoop()
   const [tab, setTab] = useState<TabId>('avdelingen')
   const game = useGame((s) => s.game)
+  const offlineOpen = useGame((s) => s.offlineReport !== null)
 
   // Små varsler i bunnmenyen: ting som venter på spilleren.
   const sick = game.staffOrder.filter((id) => game.staff[id].sickUntil !== null).length
@@ -47,7 +49,7 @@ export default function App() {
           window.scrollTo({ top: 0 })
         }}
         badges={{
-          avdelingen: game.dilemmas.active.length,
+          avdelingen: game.dilemmas.active.length + (streakStatus(game, Date.now()).canCheckIn ? 1 : 0),
           turnus: sick,
           utstyr: affordable,
           tilsyn: inspection,
@@ -55,6 +57,7 @@ export default function App() {
       />
       <Onboarding />
       <OfflineReportSheet />
+      <DiscoverySheet blocked={!game.profile.onboarded || offlineOpen} />
       <AdOverlay />
       <Toasts />
     </div>

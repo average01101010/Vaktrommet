@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { BALANCE, SHIFT_ORDER, SHIFTS } from '@/data/balance'
 import { SKILL_ORDER, SKILLS } from '@/data/professions'
 import { RESIDENT_PROFILES } from '@/data/residents'
-import { SYNERGIES } from '@/data/synergies'
+import { BONUS_SYNERGIES, SYNERGIES } from '@/data/synergies'
 import { slotsFor } from '@/engine/modifiers'
 import { residentMix } from '@/engine/residents'
 import { isAvailable } from '@/engine/synergy'
@@ -327,18 +327,24 @@ function ShiftOutlook({ ev, onShowSynergies }: { ev: ShiftEvaluation; onShowSyne
         <div className="mb-1.5 flex items-center justify-between">
           <span className="etikett">Synergier på vakta</span>
           <button className="text-[11.5px] font-bold text-petrol underline-offset-2 hover:underline" onClick={onShowSynergies}>
-            Se alle oppskrifter
+            Oppdagelsesboka {game.discoveries.synergies.length}/{BONUS_SYNERGIES.length}
           </button>
         </div>
         {ev.synergies.length === 0 ? (
           <p className="text-[12px] text-blekk-3">Ingen synergier ennå. Kombiner yrkesgrupper og egenskaper.</p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            {bonuses.map((s) => (
-              <Chip key={s.id} tone="good" title={s.description}>
-                <Icon name="stjerner" size={12} /> {s.name}
-              </Chip>
-            ))}
+            {bonuses.map((s) =>
+              game.discoveries.synergies.includes(s.id) ? (
+                <Chip key={s.id} tone="good" title={s.description}>
+                  <Icon name="stjerner" size={12} /> {s.name}
+                </Chip>
+              ) : (
+                <Chip key={s.id} tone="rav" title="Låses opp i oppdagelsesboka når vakta går">
+                  <Icon name="stjerner" size={12} /> Uoppdaget synergi
+                </Chip>
+              ),
+            )}
             {problems.map((s) => (
               <Chip key={s.id} tone="bad" title={s.description}>
                 <Icon name="avvik" size={12} /> {s.name}
@@ -363,49 +369,90 @@ const effectText = (e: (typeof SYNERGIES)[number]['effect']): string => {
   return parts.join(' · ')
 }
 
+/** Oppdagelsesboka: kjente synergier med oppskrift, uoppdagede som silhuetter med faglig hint. */
 function SynergySheet({ open, onClose, ev }: { open: boolean; onClose: () => void; ev: ShiftEvaluation }) {
+  const discovered = useGame((s) => s.game.discoveries.synergies)
   const active = new Set(ev.synergies.map((s) => s.id))
+  const found = BONUS_SYNERGIES.filter((s) => discovered.includes(s.id)).length
   return (
     <Sheet open={open} onClose={onClose} title={`Synergier · ${SHIFTS[ev.shift].name}`}>
       <p className="mb-3 text-[13px] text-blekk-2">
         Riktig faglig sammensetning gir bonus på inntjening og trivsel. Feil bemanning gir stress, avvik og sykefravær. Uten sykepleier reduseres dessuten kapasiteten i Medisin og Sår.
       </p>
-      {(['bonus', 'malus'] as const).map((tone) => (
-        <div key={tone} className="mb-4">
-          <div className="etikett mb-1.5">{tone === 'bonus' ? 'Bonuser' : 'Problemer'}</div>
-          <div className="space-y-1.5">
-            {SYNERGIES.filter((s) => s.tone === tone).map((s) => {
-              const on = active.has(s.id)
+
+      <div className="mb-4">
+        <div className="mb-1.5 flex items-end justify-between">
+          <span className="etikett">Oppdagelsesboka</span>
+          <span className="font-mono text-[11px] font-bold text-blekk-3">
+            {found}/{BONUS_SYNERGIES.length} oppdaget
+          </span>
+        </div>
+        <Meter value={found} max={BONUS_SYNERGIES.length} color="#1E4D40" height={5} className="mb-2" />
+        <div className="space-y-1.5">
+          {BONUS_SYNERGIES.map((s) => {
+            const known = discovered.includes(s.id)
+            const on = active.has(s.id)
+            if (!known) {
               return (
-                <div
-                  key={s.id}
-                  className={cx(
-                    'rounded-xl border px-3 py-2',
-                    on
-                      ? tone === 'bonus'
-                        ? 'border-skog/25 bg-skog-soft/70'
-                        : 'border-fare/25 bg-fare-soft/70'
-                      : 'border-blekk/[0.07] bg-papir',
-                  )}
-                >
+                <div key={s.id} className="rounded-xl border border-dashed border-blekk/20 bg-blekk/[0.03] px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13.5px] font-extrabold">{s.name}</span>
-                    {on && (
-                      <Chip tone={tone === 'bonus' ? 'good' : 'bad'}>
-                        <Icon name={tone === 'bonus' ? 'hake' : 'avvik'} size={11} /> Aktiv
-                      </Chip>
-                    )}
+                    <span className="flex items-center gap-2">
+                      <span className="grid h-6 w-6 place-items-center rounded-full bg-blekk/10 text-blekk/40">
+                        <Icon name="las" size={12} />
+                      </span>
+                      <span aria-label="Uoppdaget synergi" className="h-3 w-28 rounded-full bg-blekk/15" />
+                    </span>
+                    <Chip tone={on ? 'rav' : 'neutral'} className="!text-[10.5px]">
+                      {on ? 'Låses opp når vakta går' : 'Uoppdaget'}
+                    </Chip>
                   </div>
-                  <div className="mt-0.5 text-[12px] text-blekk-2">{s.recipe}</div>
-                  <div className={cx('mt-1 font-mono text-[11px] font-bold', tone === 'bonus' ? 'text-skog' : 'text-fare')}>
-                    {effectText(s.effect)}
-                  </div>
+                  <p className="mt-1.5 text-[12.5px] leading-snug text-blekk-2 italic">«{s.hint}»</p>
                 </div>
               )
-            })}
-          </div>
+            }
+            return (
+              <div key={s.id} className={cx('rounded-xl border px-3 py-2', on ? 'border-skog/25 bg-skog-soft/70' : 'border-blekk/[0.07] bg-papir')}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[13.5px] font-extrabold">{s.name}</span>
+                  {on && (
+                    <Chip tone="good">
+                      <Icon name="hake" size={11} /> Aktiv
+                    </Chip>
+                  )}
+                </div>
+                <div className="mt-0.5 text-[12px] text-blekk-2">{s.recipe}</div>
+                <div className="mt-1 font-mono text-[11px] font-bold text-skog">{effectText(s.effect)}</div>
+              </div>
+            )
+          })}
         </div>
-      ))}
+        <p className="mt-2 text-[11.5px] leading-snug text-blekk-3">
+          Uoppdagede synergier virker også – du må bare finne kombinasjonen. Første treff gir en Kaffekopp og låser oppskriften opp for godt.
+        </p>
+      </div>
+
+      <div className="mb-2">
+        <div className="etikett mb-1.5">Problemer</div>
+        <div className="space-y-1.5">
+          {SYNERGIES.filter((s) => s.tone === 'malus').map((s) => {
+            const on = active.has(s.id)
+            return (
+              <div key={s.id} className={cx('rounded-xl border px-3 py-2', on ? 'border-fare/25 bg-fare-soft/70' : 'border-blekk/[0.07] bg-papir')}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[13.5px] font-extrabold">{s.name}</span>
+                  {on && (
+                    <Chip tone="bad">
+                      <Icon name="avvik" size={11} /> Aktiv
+                    </Chip>
+                  )}
+                </div>
+                <div className="mt-0.5 text-[12px] text-blekk-2">{s.recipe}</div>
+                <div className="mt-1 font-mono text-[11px] font-bold text-fare">{effectText(s.effect)}</div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
     </Sheet>
   )
 }

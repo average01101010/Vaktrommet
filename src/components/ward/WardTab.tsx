@@ -12,6 +12,7 @@ import type { GameEvent, ShiftId } from '@/types'
 import { Chip, Meter, SectionTitle } from '../ui/bits'
 import { Icon, type IconName } from '../ui/Icon'
 import { CorkBoard } from './CorkBoard'
+import { MorgenkaffeCard, RivalCard, ThanksPanel } from './Retention'
 import { ResidentsPanel } from './ResidentsPanel'
 import { RotationSheet } from './RotationSheet'
 import type { AgentInput } from './scene/agents'
@@ -26,6 +27,8 @@ const EVENT_STYLE: Record<GameEvent['kind'], { icon: IconName; tone: string }> =
   nivaa: { icon: 'stjerner', tone: 'text-rav-2 bg-rav-soft' },
   avdeling: { icon: 'pokal', tone: 'text-rav-2 bg-rav-soft' },
   beboer: { icon: 'bytt', tone: 'text-petrol bg-petrol-soft' },
+  oppdagelse: { icon: 'stjerner', tone: 'text-skog bg-skog-soft' },
+  takk: { icon: 'hjerte', tone: 'text-[#C2566A] bg-[#F8E1E5]' },
 }
 
 export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
@@ -55,7 +58,8 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start">
-      <div className="min-w-0 space-y-4">
+      {/* Venstre kolonne står fast på brede skjermer, så rommet alltid er synlig. */}
+      <div className="min-w-0 space-y-4 lg:sticky lg:top-[4.75rem]">
         {/* ---- Avdelingsvisning ---- */}
         <div className="kort relative overflow-hidden">
           <div
@@ -149,11 +153,22 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
             </button>
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {bonuses.map((s) => (
-              <Chip key={s.id} tone="good" title={s.description}>
-                <Icon name="stjerner" size={12} /> {s.name}
+            {ev.thanksBoost && (
+              <Chip tone="rav" title="Takkekort fra pårørende løfter trivselsmålet">
+                <Icon name="hjerte" size={12} filled /> Takkekort +{Math.round(BALANCE.thanksTrivselBoost * 100)} %
               </Chip>
-            ))}
+            )}
+            {bonuses.map((s) =>
+              game.discoveries.synergies.includes(s.id) ? (
+                <Chip key={s.id} tone="good" title={s.description}>
+                  <Icon name="stjerner" size={12} /> {s.name}
+                </Chip>
+              ) : (
+                <Chip key={s.id} tone="rav" className="animate-puls">
+                  <Icon name="stjerner" size={12} /> Ny synergi …
+                </Chip>
+              ),
+            )}
             {problems.map((s) => (
               <Chip key={s.id} tone="bad" title={s.description}>
                 <Icon name="avvik" size={12} /> {s.name}
@@ -165,6 +180,8 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
       </div>
 
       <div className="min-w-0 space-y-4">
+        <MorgenkaffeCard />
+
         {/* ---- Korktavle ---- */}
         <div>
           <SectionTitle
@@ -179,7 +196,11 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
           <CorkBoard />
         </div>
 
+        <ThanksPanel />
+
         <ResidentsPanel />
+
+        <RivalCard compact />
 
         <ShiftReportCard />
 

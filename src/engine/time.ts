@@ -75,3 +75,21 @@ export function msUntilNextSeason(ms: number): number {
   const d = new Date(ms)
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - ms
 }
+
+// ---------- Norsk kalenderdag (for daglig innsjekk) ----------
+
+let osloFormat: Intl.DateTimeFormat | null = null
+
+/**
+ * Dagnummer for datoen i Norge (Europe/Oslo) – likt uansett hvilken tidssone
+ * enheten eller serveren står i. To påfølgende datoer har nummer n og n + 1.
+ */
+export function osloDayIndex(ms: number): number {
+  osloFormat ??= new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Oslo', year: 'numeric', month: '2-digit', day: '2-digit' })
+  const parts = osloFormat.formatToParts(new Date(ms))
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
+  return Math.floor(Date.UTC(get('year'), get('month') - 1, get('day')) / 86_400_000)
+}
+
+/** ISO-uka den norske datoen ligger i. */
+export const osloWeekKey = (ms: number): string => isoWeekKey(osloDayIndex(ms) * 86_400_000 + 43_200_000)

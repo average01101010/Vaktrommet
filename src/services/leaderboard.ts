@@ -1,5 +1,6 @@
-import { COUNTIES, PLAYER_PROFESSION_ORDER } from '@/data/league'
+import { COUNTIES, PLAYER_PROFESSION_ORDER, PLAYER_PROFESSION_PLURAL } from '@/data/league'
 import { pick, rand, type RngHolder } from '@/engine/rng'
+import { findRival } from '@/engine/scoring'
 import type { LeaderboardEntry, LeaderboardFilter, LeagueId, PlayerProfile } from '@/types'
 import { getSupabase } from './supabase'
 
@@ -106,4 +107,41 @@ export async function fetchLeaderboard(filter: LeaderboardFilter, player: Player
     }
   }
   return rankWithPlayer(demoEntries()[filter.league], filter, player, 'demo')
+}
+
+// ---------------------------------------------------------------------------
+// Rivalen rett over deg
+// ---------------------------------------------------------------------------
+
+export interface RivalInfo {
+  entry: LeaderboardEntry & { rank: number }
+  /** Poeng spilleren mangler for å gå forbi. */
+  gap: number
+  /** Hvem rivalen er hentet blant, f.eks. «sykepleiere i Oslo». */
+  scopeLabel: string
+  playerRank: number | null
+  total: number
+}
+
+/**
+ * Finner nærmeste konkurrent foran spilleren. Leter først blant spillerens
+ * egen yrkesgruppe i eget fylke, og utvider så til fylket, yrkesgruppa og
+ * hele landet til det finnes noen å jage.
+ */
+export async function fetchRival(player: PlayerScore, league: LeagueId = 'drift'): Promise<RivalInfo | null> {
+  const { county, profession } = player.profile
+  const plural = PLAYER_PROFESSION_PLURAL[profession]
+  const scopes: { filter: LeaderboardFilter; label: string }[] = [
+    { filter: { league, county, profession }, label: `${plural} i ${county}` },
+    { filter: { league, county, profession: 'alle' }, label: county },
+    { filter: { league, county: 'alle', profession }, label: `${plural} i hele landet` },
+    { filter: { league, county: 'alle', profession: 'alle' }, label: 'hele landet' },
+  ]
+  const score = league === 'drift' ? player.drift : player.kvalitet
+  for (const scope of scopes) {
+    const result = await fetchLeaderboard(scope.filter, player)
+    const rival = findRival(result.entries, score)
+    if (rival) return { entry: rival.entry, gap: rival.gap, scopeLabel: scope.label, playerRank: result.playerRank, total: result.total }
+  }
+  return null
 }

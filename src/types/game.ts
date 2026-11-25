@@ -36,11 +36,49 @@ export interface Settings {
   notifications: boolean
 }
 
+/** Oppdagelsesboka: hvilke synergier spilleren har funnet. */
+export interface DiscoveryState {
+  synergies: string[]
+  /** Nye funn som ikke er feiret i UI-et ennå. */
+  unseen: string[]
+}
+
+export interface ThanksCard {
+  id: number
+  /** Spillminutt kortet kom. */
+  minute: number
+  resident: string
+  /** F.eks. «Datteren til Solveig». */
+  from: string
+  text: string
+}
+
+/** Takkekort fra pårørende når en beboer skrives ut fra en avdeling med høy trivsel. */
+export interface ThanksState {
+  /** Trivselsmålet er løftet fram til dette spillminuttet. */
+  activeUntil: number
+  /** De siste kortene (nyeste først). */
+  cards: ThanksCard[]
+  total: number
+}
+
+/** Morgenkaffe: daglig innsjekk med én automatisk avspaseringsdag per uke. */
+export interface StreakState {
+  /** Dager på rad (avspaseringsdager bryter ikke rekka). */
+  count: number
+  /** Dagnummer (Europe/Oslo) for siste innsjekk, ellers null. */
+  lastDay: number | null
+  /** ISO-uka avspaseringsdagen sist ble brukt i. */
+  freeWeek: string | null
+  best: number
+  total: number
+}
+
 export interface GameEvent {
   id: number
   /** Spillminutt. */
   at: number
-  kind: 'syk' | 'frisk' | 'kurs' | 'nivaa' | 'avdeling' | 'beboer'
+  kind: 'syk' | 'frisk' | 'kurs' | 'nivaa' | 'avdeling' | 'beboer' | 'oppdagelse' | 'takk'
   text: string
 }
 
@@ -85,6 +123,9 @@ export interface GameState {
   quality: QualityStats
   inspection: InspectionState
   monetization: MonetizationState
+  discoveries: DiscoveryState
+  thanks: ThanksState
+  streak: StreakState
   settings: Settings
   events: GameEvent[]
   eventCounter: number
@@ -105,6 +146,10 @@ export interface OfflineReport {
   sick: number
   /** Antall beboere som ble skrevet ut (og erstattet) i perioden. */
   discharged: number
+  /** Takkekort fra pårørende i perioden. */
+  thanks: number
+  /** Nye synergier oppdaget i perioden. */
+  discoveries: number
   trivselFrom: number
   trivselTo: number
   newDilemmas: number

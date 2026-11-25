@@ -22,6 +22,8 @@ export function OfflineReportSheet() {
     { label: 'Avvik', value: fmtInt(report.avvik), tone: report.avvik > 0 ? 'text-fare' : undefined },
     { label: 'Sykmeldinger', value: fmtInt(report.sick), tone: report.sick > 0 ? 'text-fare' : undefined },
     { label: 'Utskrevne beboere', value: fmtInt(report.discharged) },
+    ...(report.thanks > 0 ? [{ label: 'Takkekort fra pårørende', value: fmtInt(report.thanks), tone: 'text-skog' }] : []),
+    ...(report.discoveries > 0 ? [{ label: 'Nye synergier oppdaget', value: fmtInt(report.discoveries), tone: 'text-skog' }] : []),
     {
       label: 'Trivsel',
       value: `${Math.round(report.trivselFrom)} → ${Math.round(report.trivselTo)} %`,

@@ -64,6 +64,8 @@ export interface ShiftEvaluation {
   criticalGap: { medikament: number; saarstell: number }
   /** Kompetanseutnyttelse: andel av lagets kapasitet som treffer et reelt behov. */
   utilization: number
+  /** Et takkekort fra pårørende løfter trivselsmålet akkurat nå. */
+  thanksBoost: boolean
   professions: Record<Profession, number>
   synergies: ActiveSynergy[]
   /** Rater per spilltime. */

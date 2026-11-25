@@ -56,6 +56,11 @@ function PostIt({ note, onOpen, index }: { note: ActiveDilemma; onOpen: () => vo
       style={{ ['--tilt' as string]: `${note.tilt}deg`, animationDelay: `${index * 70}ms` }}
     >
       <span className="knappenal absolute top-1.5 left-1/2 -translate-x-1/2" />
+      {note.followUpOf && (
+        <span className="absolute top-1 right-1 rotate-[8deg] rounded border-[1.5px] border-fare bg-fare-soft/90 px-1 font-mono text-[8px] font-extrabold tracking-wider text-fare uppercase">
+          Oppfølging
+        </span>
+      )}
       <span className="hand line-clamp-2 block text-[1.12rem] leading-[1] font-bold text-blekk sm:text-[1.3rem]">{def.title}</span>
       <span className="hand mt-1 line-clamp-2 block text-[0.9rem] leading-[1.05] text-blekk/75 sm:text-[1rem]">{def.body}</span>
       <span className="hand absolute right-2 bottom-1 hidden text-[0.8rem] text-blekk/55 sm:block">– {def.from}</span>
@@ -98,7 +103,7 @@ export function CorkBoard() {
         )}
       </div>
 
-      <Sheet open={Boolean(def && (open || result))} onClose={close} title={result ? 'Slik gikk det' : 'Post-it fra vaktrommet'}>
+      <Sheet open={Boolean(def && (open || result))} onClose={close} title={result ? 'Slik gikk det' : open?.followUpOf ? 'Saken du utsatte er tilbake' : 'Post-it fra vaktrommet'}>
         {def && (
           <>
             <div className={cx('postit mx-auto mt-1 max-w-sm rotate-[-1deg] px-5 pt-7 pb-5', `postit-${def.color}`)}>
@@ -114,6 +119,12 @@ export function CorkBoard() {
                 <div className="mt-3">
                   <EffectChips effect={result.applied} />
                 </div>
+                {result.followUpScheduled && (
+                  <p className="mt-3 flex items-start gap-2 rounded-xl bg-rav-soft/80 px-3 py-2 text-left text-[12.5px] leading-snug font-bold text-rav-2">
+                    <Icon name="klokke" size={15} className="mt-px shrink-0" />
+                    Saken er utsatt, ikke løst. Den kommer tilbake om ett til to døgn – og da blir den dyrere.
+                  </p>
+                )}
                 <div className="mt-4 rounded-2xl border border-petrol/15 bg-petrol-soft/60 px-4 py-3 text-left">
                   <div className="flex items-center gap-1.5 text-[10.5px] font-extrabold tracking-[0.1em] text-petrol uppercase">
                     <Icon name="kurs" size={14} /> Faglig begrunnelse
@@ -127,6 +138,12 @@ export function CorkBoard() {
               </div>
             ) : (
               <div className="mt-5 space-y-2">
+                {open?.followUpOf && (
+                  <p className="flex items-start gap-2 rounded-xl bg-fare-soft px-3 py-2 text-[12.5px] leading-snug font-bold text-fare">
+                    <Icon name="avvik" size={15} className="mt-px shrink-0" />
+                    Dette er følgen av at saken ble utsatt. Ingen av valgene er gratis nå.
+                  </p>
+                )}
                 <div className="etikett">Hva gjør du?</div>
                 {def.options.map((o) => {
                   const ok = meetsRequirement(game, o.requires)

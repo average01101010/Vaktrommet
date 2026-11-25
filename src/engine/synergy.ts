@@ -218,16 +218,19 @@ export function evaluateShift(
   const energyDrain =
     BALANCE.energyDrain * Math.pow(workload, BALANCE.energyDrainWorkloadExp) * mods.energyDrainMult
 
+  // Et ferskt takkekort fra pårørende løfter hele trivselsmålet en liten stund.
+  const thanksBoost = state.minute < state.thanks.activeUntil
   const trivselTarget = Math.max(
     0,
     Math.min(
       100,
-      BALANCE.trivselBase +
+      (BALANCE.trivselBase +
         BALANCE.trivselFromCoverage * coverage -
         BALANCE.trivselCriticalMed * criticalGap.medikament -
         BALANCE.trivselCriticalSaar * criticalGap.saarstell +
         trivselBonus +
-        mods.trivselBonus,
+        mods.trivselBonus) *
+        (thanksBoost ? 1 + BALANCE.thanksTrivselBoost : 1),
     ),
   )
 
@@ -247,6 +250,7 @@ export function evaluateShift(
     nurseFactor,
     criticalGap,
     utilization,
+    thanksBoost,
     professions,
     synergies,
     rates: {

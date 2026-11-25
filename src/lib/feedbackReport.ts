@@ -1,4 +1,5 @@
 import { BALANCE } from '@/data/balance'
+import { CONTACT_EMAIL } from '@/lib/contact'
 import { WARD_TYPES } from '@/data/wards'
 import { STATE_VERSION } from '@/engine/simulation'
 import { dayNumber } from '@/engine/time'
@@ -8,8 +9,8 @@ export type FeedbackKind = 'feil' | 'forslag' | 'annet'
 
 export const FEEDBACK_KINDS: Record<FeedbackKind, string> = { feil: 'Feil', forslag: 'Forslag', annet: 'Annet' }
 
-/** Adresse for tilbakemeldinger – settes med VITE_FEEDBACK_EMAIL. */
-export const FEEDBACK_EMAIL = (import.meta.env.VITE_FEEDBACK_EMAIL as string | undefined)?.trim() || null
+/** Adresse for tilbakemeldinger (kan overstyres med VITE_FEEDBACK_EMAIL). */
+export const FEEDBACK_EMAIL = CONTACT_EMAIL
 
 export const versionLabel = (): string => `v${__APP_VERSION__} · lagringsformat ${STATE_VERSION} · balanse ${BALANCE.version}`
 

@@ -1,5 +1,6 @@
 import { BALANCE, SHIFT_ORDER } from '@/data/balance'
 import { DILEMMA_BY_ID } from '@/data/dilemmas'
+import { STARTER_SYNERGY_IDS, SYNERGY_BY_ID } from '@/data/synergies'
 import { SKILL_ORDER } from '@/data/professions'
 import { emptyUpgradeLevels } from '@/data/upgrades'
 import { WARD_TYPES } from '@/data/wards'
@@ -113,6 +114,16 @@ export function migrateGameState(raw: unknown, nowMs: number): GameState {
 
   // ---- Dilemmaer som ikke finnes lenger, tas ned ----
   d.dilemmas.active = d.dilemmas.active.filter((a) => isObject(a) && typeof a.defId === 'string' && a.defId in DILEMMA_BY_ID)
+
+  d.dilemmas.followUps = d.dilemmas.followUps.filter(
+    (f) => isObject(f) && typeof f.defId === 'string' && f.defId in DILEMMA_BY_ID && typeof f.dueAt === 'number',
+  )
+
+  // ---- Oppdagelsesboka: bare kjente synergier, og startkunnskapen er alltid med ----
+  const known = (ids: unknown[]) => ids.filter((id): id is string => typeof id === 'string' && id in SYNERGY_BY_ID)
+  d.discoveries.synergies = [...new Set([...STARTER_SYNERGY_IDS, ...known(d.discoveries.synergies)])]
+  d.discoveries.unseen = known(d.discoveries.unseen).filter((id) => d.discoveries.synergies.includes(id))
+  d.thanks.cards = d.thanks.cards.filter((c) => isObject(c) && typeof c.from === 'string' && typeof c.text === 'string')
 
   // ---- v1 → v2 ----
   if (fromVersion < 2) {

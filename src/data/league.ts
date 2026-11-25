@@ -27,6 +27,16 @@ export const PLAYER_PROFESSIONS: Record<PlayerProfession, string> = {
   annet: 'Annet',
 }
 
+/** Flertallsform til setninger som «sykepleiere i Oslo». */
+export const PLAYER_PROFESSION_PLURAL: Record<PlayerProfession, string> = {
+  sykepleier: 'sykepleiere',
+  vernepleier: 'vernepleiere',
+  helsefagarbeider: 'helsefagarbeidere',
+  assistent: 'assistenter',
+  student: 'studenter',
+  annet: 'andre yrker',
+}
+
 export const PLAYER_PROFESSION_ORDER: PlayerProfession[] = [
   'sykepleier',
   'vernepleier',

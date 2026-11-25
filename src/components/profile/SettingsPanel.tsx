@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
 import { BALANCE } from '@/data/balance'
 import { PASS_XP_PER_LEVEL, SEASON_PASS_LEVELS } from '@/data/economy'
-import { LEGAL_IS_DRAFT, LEGAL_UPDATED, PRIVACY, TERMS, type LegalSection } from '@/data/legal'
+import { LEGAL_UPDATED, PRIVACY, TERMS, type LegalSection } from '@/data/legal'
+import { PUBLISHER } from '@/lib/contact'
 import { passLevel } from '@/engine/actions'
 import { cx } from '@/lib/format'
 import {
@@ -38,6 +39,7 @@ export function SettingsPanel() {
             </span>
             <div className="min-w-0">
               <div className="text-[14px] font-extrabold">Vaktrommet</div>
+              <div className="text-[11.5px] font-semibold text-blekk-2">Utgitt av {PUBLISHER}</div>
               <div className="font-mono text-[11px] font-semibold text-blekk-3">{versionLabel()}</div>
             </div>
           </div>
@@ -212,7 +214,7 @@ function LegalSheet({ kind, onClose }: { kind: 'personvern' | 'vilkar' | null; o
   return (
     <Sheet open={kind !== null} onClose={onClose} title={kind === 'vilkar' ? 'Brukervilkår' : 'Personvern'}>
       <div className="flex flex-wrap items-center gap-1.5">
-        {LEGAL_IS_DRAFT && <Chip tone="rav">Utkast – ikke juridisk gjennomgått</Chip>}
+        <Chip tone="petrol">{PUBLISHER}</Chip>
         <Chip className="font-mono">Sist endret {LEGAL_UPDATED}</Chip>
       </div>
       <div className="mt-3 space-y-4">
@@ -316,24 +318,16 @@ function FeedbackSheet({ open, onClose }: { open: boolean; onClose: () => void }
       <button className="knapp knapp-primar mt-4 w-full" disabled={!message.trim()} onClick={() => void copy()}>
         <Icon name="kopier" size={15} /> Kopier rapport
       </button>
-      {FEEDBACK_EMAIL ? (
-        <div className="mt-2 text-center">
-          <a
-            className={cx('knapp knapp-lys w-full', !message.trim() && 'pointer-events-none opacity-45')}
-            href={feedbackMailto(FEEDBACK_EMAIL, kind, build(false))}
-          >
-            <Icon name="melding" size={15} /> Åpne i e-post
-          </a>
-          <p className="mt-2 text-[11.5px] leading-snug text-blekk-3">
-            Send til <span className="font-mono font-bold text-blekk-2 select-all">{FEEDBACK_EMAIL}</span>. Lagringen blir ikke med i
-            e-postlenken – lim den inn fra «Kopier rapport» om du vil ha den med.
-          </p>
-        </div>
-      ) : (
-        <p className="mt-2 text-[11.5px] leading-snug text-blekk-3">
-          Lim rapporten inn i kanalen du har fått oppgitt for betatesten.
-        </p>
-      )}
+      <a
+        className={cx('knapp knapp-lys mt-2 w-full', !message.trim() && 'pointer-events-none opacity-45')}
+        href={feedbackMailto(FEEDBACK_EMAIL, kind, build(false))}
+      >
+        <Icon name="melding" size={15} /> Åpne i e-post
+      </a>
+      <p className="mt-2 text-[11.5px] leading-snug text-blekk-3">
+        Send til <span className="font-mono font-bold text-blekk-2 select-all">{FEEDBACK_EMAIL}</span>. Åpner ikke e-postappen
+        seg, kopier rapporten og lim den inn i en e-post til adressen. Lagringen blir bare med via «Kopier rapport».
+      </p>
       {manual !== null && (
         <div className="mt-3 animate-inn">
           <p className="mb-1 text-[11.5px] font-semibold text-rav-2">Automatisk kopiering ble ikke tillatt. Teksten er merket – kopier den selv.</p>

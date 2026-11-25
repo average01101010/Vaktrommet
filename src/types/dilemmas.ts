@@ -31,6 +31,11 @@ export interface DilemmaOption {
   effect: Effect
   /** Vises etter at valget er tatt. */
   outcome: string
+  /**
+   * Valget utsetter saken: et oppfølgingsdilemma (med strengere konsekvenser)
+   * dukker opp etter så mange spilltimer [min, maks].
+   */
+  followUp?: { id: string; afterHours: [number, number] }
 }
 
 export type PostItColor = 'gul' | 'rosa' | 'mint' | 'bla'
@@ -44,6 +49,8 @@ export interface DilemmaDef {
   from: string
   color: PostItColor
   minTier?: number
+  /** Dukker bare opp som oppfølging av et utsatt valg – aldri tilfeldig. */
+  followUpOnly?: boolean
   /** Faglig begrunnelse som vises sammen med utfallet. */
   fagligBegrunnelse: string
   /** Kort kildehenvisning (lov, retningslinje eller verktøy). */
@@ -58,6 +65,17 @@ export interface ActiveDilemma {
   postedAt: number
   /** Liten rotasjon/plassering for korktavla (deterministisk fra uid). */
   tilt: number
+  /** Id-en til dilemmaet denne lappen er en oppfølging av. */
+  followUpOf?: string
+}
+
+/** En utsatt sak som kommer tilbake. */
+export interface ScheduledFollowUp {
+  defId: string
+  /** Spillminutt oppfølgingen henges opp. */
+  dueAt: number
+  /** Dilemmaet der saken ble utsatt. */
+  sourceId: string
 }
 
 export interface DilemmaState {
@@ -67,6 +85,7 @@ export interface DilemmaState {
   /** De sist brukte dilemmaene (unngå gjentakelser). */
   recent: string[]
   counter: number
+  followUps: ScheduledFollowUp[]
 }
 
 export interface DilemmaResolution {
@@ -74,4 +93,6 @@ export interface DilemmaResolution {
   optionId: string
   outcome: string
   applied: Effect
+  /** Saken ble utsatt og kommer tilbake som oppfølging. */
+  followUpScheduled: boolean
 }

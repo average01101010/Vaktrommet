@@ -12,6 +12,7 @@ import type {
   BannerId,
   DilemmaResolution,
   GameState,
+  Reward,
   OfflineReport,
   Settings,
   ShiftId,
@@ -74,6 +75,9 @@ interface GameStore {
   doubleLastShift: () => Promise<void>
   markShiftReportSeen: () => void
   rotateWard: (choice: { wardType: WardTypeId; keepStaff: StaffId[]; wardName?: string }) => boolean
+  /** Dagens Morgenkaffe. Returnerer belønningen, eller null hvis den alt er tatt. */
+  checkInMorgenkaffe: () => Reward | null
+  acknowledgeDiscoveries: () => void
 
   watchAd: (placement: AdPlacement) => Promise<boolean>
   finishAd: (watched: boolean) => void
@@ -191,6 +195,11 @@ export const useGame = create<GameStore>()(
           if (state === game) return
           set(report ? { game: state, offlineReport: report } : { game: state })
           if (report) flushSave()
+          // Et takkekort som kommer mens man spiller, fortjener litt oppmerksomhet.
+          else if (state.thanks.total > game.thanks.total && state.thanks.cards[0]) {
+            const from = state.thanks.cards[0].from
+            get().toast(`Takkekort fra ${from.charAt(0).toLowerCase()}${from.slice(1)}`, 'good')
+          }
         },
         dismissOfflineReport: () => set({ offlineReport: null }),
 
@@ -286,6 +295,17 @@ export const useGame = create<GameStore>()(
           if (run(actions.doubleLastShift(get().game))) get().toast('Vaktutbetalingen er doblet!', 'good')
         },
         markShiftReportSeen: () => void run(actions.markShiftReportSeen(get().game)),
+
+        checkInMorgenkaffe: () => run(actions.checkInMorgenkaffe(get().game, Date.now()))?.reward ?? null,
+        acknowledgeDiscoveries: () => {
+          const game = get().game
+          if (game.discoveries.unseen.length === 0) return
+          const r = actions.acknowledgeDiscoveries(game)
+          if (r.ok) {
+            set({ game: r.state })
+            flushSave()
+          }
+        },
 
         rotateWard: (choice) => {
           const ok = run(actions.rotateWard(get().game, choice)) !== null

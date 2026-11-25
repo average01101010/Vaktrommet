@@ -5,7 +5,7 @@ import type { Profession, Rarity, ShiftId } from '@/types'
  * klient og server (validering) alltid regner likt.
  */
 export const BALANCE = {
-  version: 3,
+  version: 4,
 
   // ---- Tid ----
   /** Ett reelt sekund = fire spillminutter → én vakt (8 t) varer to minutter. */
@@ -122,6 +122,21 @@ export const BALANCE = {
   qualityMinHours: 24,
   efficiencyRef: 30,
 
+  // ---- Belønninger som skalerer med inntjening ----
+  /** Minste timeinntekt som legges til grunn, så en tom turnus ikke gir null. */
+  rewardMinBudgetPerHour: 250,
+  rewardMinFagpoengPerHour: 5,
+
+  // ---- Oppdagelsesbok ----
+  discoveryKaffekopper: 1,
+
+  // ---- Takkekort ----
+  /** Trivsel må være OVER dette når beboeren skrives ut. */
+  thanksTrivselThreshold: 75,
+  /** Trivselsmålet ganges med 1 + dette mens kortet virker. */
+  thanksTrivselBoost: 0.1,
+  thanksHours: 4,
+
   // ---- Ukens tilsyn ----
   /** Antall fullførte vakter før ukens resultat teller. */
   inspectionMinShifts: 24,
@@ -132,7 +147,7 @@ export const BALANCE = {
   rotationUnlockTier: 5,
   rotationKeepStaff: 3,
   rotationStaffCount: 6,
-  rotationKaffekopper: 50,
+  rotationKaffekopper: 25,
   renommeBase: 2,
   /** Ett ekstra renommé per så mange poeng på Kvalitetsindeksen. */
   renommePerQuality: 250,
@@ -176,11 +191,11 @@ export const RARITY_ORDER: Rarity[] = ['vanlig', 'erfaren', 'spesialist', 'ildsj
 /** Avdelingsnivå – låses opp av opptjente Fagpoeng totalt. */
 export const TIERS: { name: string; tagline: string; fagpoeng: number; reward: number }[] = [
   { name: 'Sliten avdeling', tagline: 'Flekkete linoleum og en kaffetrakter fra 1998.', fagpoeng: 0, reward: 0 },
-  { name: 'Stabil drift', tagline: 'Vaktene går rundt. Stort sett.', fagpoeng: 300, reward: 10 },
-  { name: 'Faglig løft', tagline: 'Fagdager, sjekklister og færre brannslukkinger.', fagpoeng: 2500, reward: 15 },
-  { name: 'Læringsavdeling', tagline: 'Studentene ber om praksisplass hos dere.', fagpoeng: 15000, reward: 25 },
-  { name: 'Fyrtårnsavdeling', tagline: 'Nabokommunene kommer på studiebesøk.', fagpoeng: 75000, reward: 40 },
-  { name: 'Kompetansesenter', tagline: 'Prestisjetungt, faglig ledende – og fortsatt varmt.', fagpoeng: 300000, reward: 75 },
+  { name: 'Stabil drift', tagline: 'Vaktene går rundt. Stort sett.', fagpoeng: 300, reward: 4 },
+  { name: 'Faglig løft', tagline: 'Fagdager, sjekklister og færre brannslukkinger.', fagpoeng: 2500, reward: 6 },
+  { name: 'Læringsavdeling', tagline: 'Studentene ber om praksisplass hos dere.', fagpoeng: 15000, reward: 10 },
+  { name: 'Fyrtårnsavdeling', tagline: 'Nabokommunene kommer på studiebesøk.', fagpoeng: 75000, reward: 15 },
+  { name: 'Kompetansesenter', tagline: 'Prestisjetungt, faglig ledende – og fortsatt varmt.', fagpoeng: 300000, reward: 25 },
 ]
 
 /** Belønningsterskler for ukens tilsyn: snitt tilsynspoeng (0–100) per fullførte vakt. */

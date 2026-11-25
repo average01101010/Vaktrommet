@@ -1,4 +1,4 @@
-import type { AdPlacement, BannerDef, BannerId, SeasonPassLevel, ShopItemDef } from '@/types'
+import type { AdPlacement, BannerDef, BannerId, Reward, SeasonPassLevel, ShopItemDef } from '@/types'
 
 // ---------- Rekrutteringspakker (gacha) ----------
 
@@ -114,19 +114,37 @@ const lvl = (level: number, free: SeasonPassLevel['free'], premium: SeasonPassLe
   premium,
 })
 
+/**
+ * Kr og Fagpoeng oppgis i spilltimer med spillerens nåværende inntjening
+ * (se resolveReward), så passet er like relevant sent som tidlig.
+ * Gratisstien gir få Kaffekopper; den betalte stien er den rause.
+ */
 export const SEASON_PASS_LEVELS: SeasonPassLevel[] = [
-  lvl(1, { budget: 1500 }, { kaffekopper: 15 }),
-  lvl(2, { fagpoeng: 60 }, { budget: 6000 }),
-  lvl(3, { kaffekopper: 5 }, { fagpoeng: 250 }),
-  lvl(4, { budget: 4000 }, { kaffekopper: 25 }),
-  lvl(5, { fagpoeng: 150 }, { budget: 15000 }),
-  lvl(6, { kaffekopper: 8 }, { fagpoeng: 600 }),
-  lvl(7, { budget: 9000 }, { kaffekopper: 35 }),
-  lvl(8, { fagpoeng: 350 }, { budget: 35000 }),
-  lvl(9, { kaffekopper: 10 }, { fagpoeng: 1500 }),
-  lvl(10, { budget: 20000 }, { kaffekopper: 50 }),
-  lvl(11, { fagpoeng: 700 }, { budget: 70000 }),
-  lvl(12, { kaffekopper: 15 }, { kaffekopper: 80 }),
+  lvl(1, { budgetHours: 6 }, { kaffekopper: 15 }),
+  lvl(2, { fagpoengHours: 8 }, { budgetHours: 24 }),
+  lvl(3, { kaffekopper: 2 }, { fagpoengHours: 30 }),
+  lvl(4, { budgetHours: 12 }, { kaffekopper: 25 }),
+  lvl(5, { fagpoengHours: 16 }, { budgetHours: 48 }),
+  lvl(6, { kaffekopper: 3 }, { fagpoengHours: 60 }),
+  lvl(7, { budgetHours: 20 }, { kaffekopper: 35 }),
+  lvl(8, { fagpoengHours: 24 }, { budgetHours: 96 }),
+  lvl(9, { kaffekopper: 4 }, { fagpoengHours: 120 }),
+  lvl(10, { budgetHours: 32 }, { kaffekopper: 50 }),
+  lvl(11, { fagpoengHours: 40 }, { budgetHours: 160 }),
+  lvl(12, { kaffekopper: 6 }, { kaffekopper: 80 }),
+]
+
+// ---------- Morgenkaffe (daglig innsjekk) ----------
+
+/** Belønning for dag 1–7 i rekka. Etter dag 7 begynner uka på nytt. */
+export const MORGENKAFFE_REWARDS: Reward[] = [
+  { budgetHours: 2 },
+  { fagpoengHours: 3 },
+  { budgetHours: 3, kaffekopper: 1 },
+  { fagpoengHours: 5 },
+  { budgetHours: 6 },
+  { fagpoengHours: 8, kaffekopper: 1 },
+  { budgetHours: 10, kaffekopper: 5 },
 ]
 
 // ---------- Rewarded video ----------

@@ -63,6 +63,18 @@ supabase/migrations/   Databaseskjema (ikke kjørt automatisk)
 - **Endgame:** På nivå 6 kan avdelingen overleveres. Du velger ny avdelingstype, tar med renommé,
   fagbøker, Kaffekopper og inntil tre ansatte, og bygger opp neste enhet med høyere terskler.
 
+## Balanse og gjenbesøk
+
+- **Belønninger som skalerer:** Kr og Fagpoeng i Tilsynspasset og Morgenkaffe er oppgitt i spilltimer
+  (`budgetHours` / `fagpoengHours`) og regnes om med `resolveReward()` ut fra dagens inntjening.
+- **Dilemma-oppfølging:** Valg med `followUp` utsetter saken. Et strengere oppfølgingsdilemma
+  (`followUpOnly`) henges opp 24–48 spilltimer senere.
+- **Oppdagelsesbok:** Åtte av elleve bonus-synergier starter skjult med faglig hint. De virker uansett,
+  og låses opp med en Kaffekopp første gang kombinasjonen treffes.
+- **Takkekort:** Skrives en beboer ut mens trivselen er over 75 %, løftes trivselsmålet 10 % i 4 spilltimer.
+- **Morgenkaffe:** Daglig innsjekk etter norsk dato, med én automatisk avspaseringsdag per ISO-uke.
+- **Rival:** Nærmeste konkurrent foran spilleren, først blant egen yrkesgruppe i eget fylke.
+
 ## Lagring
 
 Spillet lagres i `localStorage`, høyst hvert femte sekund og med en gang etter spillerhandlinger
@@ -81,8 +93,8 @@ Trykk på avdelingsnavnet i toppfeltet for **Profil & Innstillinger**:
 - **Innstillinger:** lyd, haptikk og varsler ligger i `GameState.settings`. Varsler er lokale og virker
   bare mens nettleseren holder appen i live i bakgrunnen – push fra server er ikke bygget.
 
-Personvern og brukervilkår ligger i `src/data/legal.ts` og er merket som **utkast**. Sett
-`VITE_FEEDBACK_EMAIL` for å få en «Åpne i e-post»-knapp i tilbakemeldingsskjemaet.
+Personvern og brukervilkår ligger i `src/data/legal.ts`. Utgiver og kontaktadresse settes i
+`src/lib/contact.ts`; adressen kan overstyres med `VITE_FEEDBACK_EMAIL`.
 
 ## Supabase (valgfritt)
 

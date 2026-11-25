@@ -3,7 +3,7 @@ import { BALANCE, INSPECTION_TIERS } from '@/data/balance'
 import { PASS_XP_PER_LEVEL, SEASON_PASS_LEVELS, SHOP_ITEMS } from '@/data/economy'
 import { COUNTIES, PLAYER_PROFESSION_ORDER, PLAYER_PROFESSIONS } from '@/data/league'
 import { SKILLS } from '@/data/professions'
-import { inspectionQualified, passLevel } from '@/engine/actions'
+import { incomeRates, inspectionQualified, passLevel, resolveReward } from '@/engine/actions'
 import { driftScore, qualityIndex } from '@/engine/scoring'
 import { inspectionAverage, inspectionFor } from '@/engine/simulation'
 import { isoWeekNumber, msUntilNextSeason, msUntilNextWeek } from '@/engine/time'
@@ -15,6 +15,8 @@ import { useCurrentShift, useGameState, useShiftEvaluation } from '@/store/selec
 import type { LeagueId, PlayerProfession, Reward, ShopItemDef } from '@/types'
 import { Amount, Chip, Meter, SectionTitle, Segmented } from '../ui/bits'
 import { Icon } from '../ui/Icon'
+import { RewardLine } from '../ui/RewardLine'
+import { RivalCard } from '../ward/Retention'
 
 type View = 'tilsyn' | 'toppliste' | 'butikk' | 'pass'
 
@@ -32,7 +34,7 @@ export function LeagueTab() {
   ).length
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="mx-auto max-w-3xl space-y-4 pb-28">
       <Segmented<View>
         value={view}
         onChange={setView}
@@ -48,16 +50,6 @@ export function LeagueTab() {
       {view === 'butikk' && <ShopPanel />}
       {view === 'pass' && <PassPanel />}
     </div>
-  )
-}
-
-function RewardLine({ reward, className }: { reward: Reward; className?: string }) {
-  return (
-    <span className={cx('inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]', className)}>
-      {reward.budget ? <Amount kind="budget">{fmtCompact(reward.budget)} kr</Amount> : null}
-      {reward.fagpoeng ? <Amount kind="fagpoeng">{fmtCompact(reward.fagpoeng)}</Amount> : null}
-      {reward.kaffekopper ? <Amount kind="kaffekopper">{reward.kaffekopper}</Amount> : null}
-    </span>
   )
 }
 
@@ -254,6 +246,8 @@ function LeaderboardPanel() {
           </button>
         ))}
       </div>
+
+      {league === 'drift' && <RivalCard />}
 
       {league === 'kvalitet' && (
         <div className="kort p-3.5">
@@ -499,6 +493,8 @@ function PassPanel() {
   const maxLevel = SEASON_PASS_LEVELS.length
   const intoLevel = level >= maxLevel ? PASS_XP_PER_LEVEL : pass.xp % PASS_XP_PER_LEVEL
   const month = MONTHS[Number(pass.seasonId.split('-')[1]) - 1] ?? ''
+  // Kr og Fagpoeng i passet følger inntjeningen. Regn ut ratene én gang for hele lista.
+  const rates = useMemo(() => incomeRates(game), [game])
 
   return (
     <div className="space-y-4">
@@ -523,7 +519,10 @@ function PassPanel() {
           </div>
         </div>
         <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <p className="text-[12px] text-blekk-2">XP tjenes på fullførte vakter, dilemmaer og ukens tilsyn.</p>
+          <p className="text-[12px] leading-snug text-blekk-2">
+            XP tjenes på fullførte vakter, dilemmaer og ukens tilsyn. Kr og Fagpoeng følger inntjeningen din, så belønningene
+            vokser med avdelingen.
+          </p>
           {pass.premium ? (
             <Chip tone="rav">
               <Icon name="hake" size={12} /> Betalt sti aktiv
@@ -553,13 +552,13 @@ function PassPanel() {
                   </span>
                 </div>
                 <PassCell
-                  reward={l.free}
+                  reward={resolveReward(game, l.free, rates)}
                   state={pass.claimedFree.includes(l.level) ? 'claimed' : reached ? 'ready' : 'locked'}
                   onClaim={() => claimPass(l.level, 'free')}
                 />
                 <PassCell
                   premium
-                  reward={l.premium}
+                  reward={resolveReward(game, l.premium, rates)}
                   state={pass.claimedPremium.includes(l.level) ? 'claimed' : !pass.premium ? 'paywall' : reached ? 'ready' : 'locked'}
                   onClaim={() => claimPass(l.level, 'premium')}
                 />
@@ -596,7 +595,7 @@ function PassCell({
             : 'border-blekk/[0.07] bg-blekk/[0.025]',
       )}
     >
-      <RewardLine reward={reward} />
+      <RewardLine reward={reward} approx={state !== 'claimed' && Boolean(reward.budget || reward.fagpoeng)} />
       {state === 'claimed' ? (
         <Icon name="hake" size={15} className="shrink-0 text-skog" />
       ) : state === 'ready' ? (

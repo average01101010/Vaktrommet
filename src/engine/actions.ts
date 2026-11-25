@@ -3,7 +3,15 @@ import { COUNTIES, PLAYER_PROFESSIONS } from '@/data/league'
 import { emptyUpgradeLevels } from '@/data/upgrades'
 import { WARD_TYPES } from '@/data/wards'
 import { DILEMMA_BY_ID } from '@/data/dilemmas'
-import { BANNERS, PASS_XP, PASS_XP_PER_LEVEL, SEASON_PASS_LEVELS, SHOP_BY_ID, softBannerCost } from '@/data/economy'
+import {
+  BANNERS,
+  MORGENKAFFE_REWARDS,
+  PASS_XP,
+  PASS_XP_PER_LEVEL,
+  SEASON_PASS_LEVELS,
+  SHOP_BY_ID,
+  softBannerCost,
+} from '@/data/economy'
 import { UPGRADE_BY_ID, upgradeCost } from '@/data/upgrades'
 import type {
   BannerId,
@@ -28,10 +36,11 @@ import { migrateGameState } from './migrate'
 import { maxSkillLevelFor, modifiersFor, slotsFor } from './modifiers'
 import { syncResidents } from './residents'
 import { qualityIndex, wardDriftScore } from './scoring'
-import { rand } from './rng'
+import { rand, randInt } from './rng'
 import {
   cloneState,
   createInitialState,
+  defaultThanks,
   emptyLifetime,
   inspectionAverage,
   newAccumulator,
@@ -42,7 +51,7 @@ import {
 } from './simulation'
 import { generateStaff } from './staffFactory'
 import { evaluateShift, isAvailable, shiftCountOf } from './synergy'
-import { dayNumber, MIN_PER_HOUR, realMsToGameMinutes, seasonId, shiftAt } from './time'
+import { dayNumber, MIN_PER_HOUR, osloDayIndex, osloWeekKey, realMsToGameMinutes, seasonId, shiftAt } from './time'
 
 /**
  * Alle spillerhandlinger som rene funksjoner: (state, …) → ny state eller feil.
@@ -56,7 +65,46 @@ const fail = (reason: string): { ok: false; reason: string } => ({ ok: false, re
 // Belønninger
 // ---------------------------------------------------------------------------
 
-export function applyReward(d: GameState, r: Reward): void {
+/**
+ * Spillerens inntjening per spilltime akkurat nå: snittet av de tre vaktene
+ * slik turnusen står. Brukes til å skalere belønninger, med et gulv så en tom
+ * turnus ikke gir null.
+ */
+export function incomeRates(state: GameState): { budget: number; fagpoeng: number } {
+  const mods = modifiersFor(state)
+  let budget = 0
+  let fagpoeng = 0
+  for (const shift of SHIFT_ORDER) {
+    const ev = evaluateShift(state, shift, mods)
+    budget += ev.rates.budgetNet
+    fagpoeng += ev.rates.fagpoeng
+  }
+  return {
+    budget: Math.max(BALANCE.rewardMinBudgetPerHour, budget / SHIFT_ORDER.length),
+    fagpoeng: Math.max(BALANCE.rewardMinFagpoengPerHour, fagpoeng / SHIFT_ORDER.length),
+  }
+}
+
+/**
+ * Gjør om en belønning oppgitt i timer (budgetHours / fagpoengHours) til
+ * faktiske beløp ut fra dagens inntjening. Faste beløp går uendret gjennom.
+ */
+export function resolveReward(state: GameState, r: Reward, knownRates?: { budget: number; fagpoeng: number }): Reward {
+  if (!r.budgetHours && !r.fagpoengHours) return r
+  const rates = knownRates ?? incomeRates(state)
+  const out: Reward = {}
+  const budget = (r.budget ?? 0) + Math.round(((r.budgetHours ?? 0) * rates.budget) / 50) * 50
+  const fagpoeng = (r.fagpoeng ?? 0) + Math.round((r.fagpoengHours ?? 0) * rates.fagpoeng)
+  if (budget) out.budget = budget
+  if (fagpoeng) out.fagpoeng = fagpoeng
+  if (r.kaffekopper) out.kaffekopper = r.kaffekopper
+  if (r.passXp) out.passXp = r.passXp
+  return out
+}
+
+/** Deler ut en belønning på utkastet og returnerer de faktiske beløpene. */
+export function applyReward(d: GameState, reward: Reward): Reward {
+  const r = resolveReward(d, reward)
   if (r.budget) {
     d.resources.budget += r.budget
     d.lifetime.budget += r.budget
@@ -68,6 +116,7 @@ export function applyReward(d: GameState, r: Reward): void {
   if (r.kaffekopper) d.resources.kaffekopper += r.kaffekopper
   if (r.passXp) d.monetization.seasonPass.xp += r.passXp
   syncTier(d)
+  return r
 }
 
 // ---------------------------------------------------------------------------
@@ -277,8 +326,22 @@ export function resolveDilemma(
   d.monetization.seasonPass.xp += PASS_XP.dilemma + (e.passXp ?? 0)
   d.dilemmas.active = d.dilemmas.active.filter((a) => a.uid !== uid)
   d.lifetime.dilemmasResolved++
+
+  // Et utsatt valg løser ikke saken: den kommer tilbake, strengere, om 1–2 døgn.
+  let followUpScheduled = false
+  const follow = option.followUp
+  if (follow && DILEMMA_BY_ID[follow.id] && !d.dilemmas.followUps.some((f) => f.defId === follow.id)) {
+    const hours = randInt(d, follow.afterHours[0], follow.afterHours[1])
+    d.dilemmas.followUps.push({ defId: follow.id, dueAt: d.minute + hours * MIN_PER_HOUR, sourceId: def.id })
+    followUpScheduled = true
+  }
+
   syncTier(d)
-  return { ok: true, state: d, resolution: { defId: def.id, optionId, outcome: option.outcome, applied: e } }
+  return {
+    ok: true,
+    state: d,
+    resolution: { defId: def.id, optionId, outcome: option.outcome, applied: e, followUpScheduled },
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -479,8 +542,8 @@ export function claimPassReward(state: GameState, level: number, track: 'free' |
   const d = cloneState(state)
   const dp = d.monetization.seasonPass
   ;(track === 'free' ? dp.claimedFree : dp.claimedPremium).push(level)
-  applyReward(d, def[track])
-  return { ok: true, state: d, reward: def[track] }
+  const reward = applyReward(d, def[track])
+  return { ok: true, state: d, reward }
 }
 
 /** Har uka nok fullførte vakter til at resultatet teller? */
@@ -711,6 +774,82 @@ export function restorePurchases(
 }
 
 // ---------------------------------------------------------------------------
+// Oppdagelsesbok
+// ---------------------------------------------------------------------------
+
+/** Markerer nye synergifunn som sett (etter at UI-et har feiret dem). */
+export function acknowledgeDiscoveries(state: GameState): ActionResult {
+  if (state.discoveries.unseen.length === 0) return { ok: true, state }
+  const d = cloneState(state)
+  d.discoveries.unseen = []
+  return { ok: true, state: d }
+}
+
+// ---------------------------------------------------------------------------
+// Morgenkaffe (daglig innsjekk)
+// ---------------------------------------------------------------------------
+
+export interface StreakStatus {
+  /** Kan spilleren sjekke inn nå (ikke gjort i dag)? */
+  canCheckIn: boolean
+  /** Rekka slik den står hvis spilleren sjekker inn nå. */
+  nextCount: number
+  /** Dag 1–7 i belønningsuka for neste innsjekk. */
+  rewardDay: number
+  /** Rekka slik den vises nå (0 hvis den er brutt). */
+  count: number
+  /** Ukas avspaseringsdag er ubrukt. */
+  freeDayAvailable: boolean
+  /** Neste innsjekk bruker avspaseringsdagen for å redde rekka. */
+  usesFreeDay: boolean
+  /** Rekka er brutt og starter på nytt ved neste innsjekk. */
+  broken: boolean
+}
+
+/**
+ * Status for Morgenkaffe-rekka. Datoen regnes i norsk tid. Går det én dag uten
+ * innsjekk, brukes ukas avspaseringsdag automatisk – turnusarbeidere mister
+ * ikke rekka på grunn av én nattevakt. To dager uten, eller en ny glipp i
+ * samme uke, starter rekka på nytt.
+ */
+export function streakStatus(state: GameState, nowMs: number): StreakStatus {
+  const { count, lastDay, freeWeek } = state.streak
+  const today = osloDayIndex(nowMs)
+  const freeDayAvailable = freeWeek !== osloWeekKey(nowMs)
+  const gap = lastDay === null ? Infinity : today - lastDay
+  const canCheckIn = gap !== 0 && gap > 0
+  const usesFreeDay = gap === 2 && freeDayAvailable
+  const continues = gap === 1 || usesFreeDay
+  const alive = gap === 0 || continues
+  const nextCount = gap === 0 ? count : continues ? count + 1 : 1
+  return {
+    canCheckIn,
+    nextCount,
+    rewardDay: ((Math.max(1, nextCount) - 1) % MORGENKAFFE_REWARDS.length) + 1,
+    count: alive ? count : 0,
+    freeDayAvailable,
+    usesFreeDay,
+    broken: lastDay !== null && !alive,
+  }
+}
+
+export function checkInMorgenkaffe(
+  state: GameState,
+  nowMs: number,
+): ActionResult<{ reward: Reward; status: StreakStatus }> {
+  const status = streakStatus(state, nowMs)
+  if (!status.canCheckIn) return fail('Du har allerede tatt morgenkaffen i dag.')
+  const d = cloneState(state)
+  d.streak.count = status.nextCount
+  d.streak.lastDay = osloDayIndex(nowMs)
+  if (status.usesFreeDay) d.streak.freeWeek = osloWeekKey(nowMs)
+  d.streak.best = Math.max(d.streak.best, d.streak.count)
+  d.streak.total++
+  const reward = applyReward(d, MORGENKAFFE_REWARDS[status.rewardDay - 1])
+  return { ok: true, state: d, reward, status }
+}
+
+// ---------------------------------------------------------------------------
 // Avdelingsrotasjon (endgame)
 // ---------------------------------------------------------------------------
 
@@ -801,6 +940,8 @@ export function rotateWard(state: GameState, choice: RotationChoice): ActionResu
   d.shift.current = newAccumulator(d.minute)
   d.shift.last = null
   d.dilemmas.active = []
+  d.dilemmas.followUps = []
+  d.thanks = { ...defaultThanks(), total: d.thanks.total }
   d.dilemmas.nextAt = d.minute + 4 * MIN_PER_HOUR
   d.monetization.rosterTemplates = []
   d.monetization.gacha.lastPull = null

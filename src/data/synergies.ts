@@ -26,6 +26,10 @@ export interface SynergyDef {
   description: string
   /** Kort oppskrift som vises i vaktplanleggeren. */
   recipe: string
+  /** Faglig hint som vises mens synergien er uoppdaget. */
+  hint?: string
+  /** Kjent fra start. Øvrige bonuser må oppdages ved å treffe kombinasjonen. */
+  starter?: boolean
   effect: SynergyEffect
   test: (ctx: SynergyContext) => boolean
 }
@@ -41,6 +45,7 @@ export const SYNERGIES: SynergyDef[] = [
     tone: 'bonus',
     description: 'Tre ulike yrkesgrupper ser pasienten fra hver sin vinkel.',
     recipe: 'Minst 3 ulike yrkesgrupper på vakt',
+    starter: true,
     effect: { fagpoeng: 0.2, trivsel: 4 },
     test: (c) => distinctProfessions(c) >= 3,
   },
@@ -50,6 +55,7 @@ export const SYNERGIES: SynergyDef[] = [
     tone: 'bonus',
     description: 'En sykepleier med stø hånd har kontroll på istandgjøring og utdeling.',
     recipe: 'Sykepleier med Medisin 3+',
+    starter: true,
     effect: { fagpoeng: 0.1, avvik: 0.8 },
     test: (c) => c.present.some((s) => s.profession === 'sykepleier' && s.skills.medikament >= 3),
   },
@@ -59,6 +65,7 @@ export const SYNERGIES: SynergyDef[] = [
     tone: 'bonus',
     description: 'To med legemiddelkompetanse kvitterer for hverandre.',
     recipe: 'To på vakt med Medisin 2+',
+    hint: 'To par øyne ser mer enn ett – særlig ved medisinrommet.',
     effect: { avvik: 0.75, budget: 0.05 },
     test: (c) => c.countWith('medikament', 2) >= 2,
   },
@@ -68,6 +75,7 @@ export const SYNERGIES: SynergyDef[] = [
     tone: 'bonus',
     description: 'Vernepleier og helsefagarbeider holder struktur og ro gjennom vakta.',
     recipe: 'Vernepleier + helsefagarbeider, Miljø 5+ til sammen',
+    hint: 'To yrkesgrupper som begge jobber med struktur og ro i hverdagen.',
     effect: { trivsel: 6, stress: -0.8 },
     test: (c) => c.professions.vernepleier > 0 && c.professions.helsefagarbeider > 0 && c.skillSum.miljoterapi >= 5,
   },
@@ -77,6 +85,7 @@ export const SYNERGIES: SynergyDef[] = [
     tone: 'bonus',
     description: 'Sår følges opp likt hver gang – færre infeksjoner og innleggelser.',
     recipe: 'To på vakt med Sår 3+',
+    hint: 'Når flere kan sår like godt, blir oppfølgingen lik hver gang.',
     effect: { budget: 0.15, fagpoeng: 0.08 },
     test: (c) => c.countWith('saarstell', 3) >= 2,
   },
@@ -86,6 +95,7 @@ export const SYNERGIES: SynergyDef[] = [
     tone: 'bonus',
     description: 'Nok hender og kunnskap rundt bordet – maten blir spist.',
     recipe: 'Ernæring 6+ til sammen (dag/aften)',
+    hint: 'Nok kunnskap rundt bordet når maten serveres.',
     effect: { trivsel: 5, budget: 0.05 },
     test: (c) => c.shift !== 'natt' && c.skillSum.ernaering >= 6,
   },
@@ -95,6 +105,7 @@ export const SYNERGIES: SynergyDef[] = [
     tone: 'bonus',
     description: 'Nattevakta møter uro med ro. Færre alarmer, mer søvn.',
     recipe: 'Nattevakt med Ro 5+ til sammen',
+    hint: 'Hva trenger avdelingen mest når lyset er slukket?',
     effect: { stress: -1.2, trivsel: 4, avvik: 0.85 },
     test: (c) => c.shift === 'natt' && c.skillSum.deeskalering >= 5,
   },
@@ -104,6 +115,7 @@ export const SYNERGIES: SynergyDef[] = [
     tone: 'bonus',
     description: 'Solnedgangsuroen fanges opp før den eskalerer.',
     recipe: 'Aftenvakt med noen på Ro 4+ og Miljø 4+ til sammen',
+    hint: 'Solnedgangsuro møtes best av én som er trygg i situasjonen, og et lag som kan miljøarbeid.',
     effect: { trivsel: 4, stress: -0.6 },
     test: (c) => c.shift === 'aften' && c.skillMax.deeskalering >= 4 && c.skillSum.miljoterapi >= 4,
   },
@@ -113,6 +125,7 @@ export const SYNERGIES: SynergyDef[] = [
     tone: 'bonus',
     description: 'En erfaren fagperson tar med seg en fersk kollega.',
     recipe: 'Spesialist/ildsjel sammen med en vanlig ansatt',
+    hint: 'Den som kan mest, lærer bort mest – til den som er ferskest.',
     effect: { xp: 1.4, fagpoeng: 0.06 },
     test: (c) =>
       c.present.some((s) => s.rarity === 'spesialist' || s.rarity === 'ildsjel') &&
@@ -124,6 +137,7 @@ export const SYNERGIES: SynergyDef[] = [
     tone: 'bonus',
     description: 'Dokumentasjonen er så god at rapporten leses, ikke fortelles.',
     recipe: 'Dokumentasjon 7+ til sammen',
+    hint: 'Når det som er skrevet er godt nok, trenger ingen å fortelle det.',
     effect: { fagpoeng: 0.12 },
     test: (c) => c.skillSum.dokumentasjon >= 7,
   },
@@ -133,6 +147,7 @@ export const SYNERGIES: SynergyDef[] = [
     tone: 'bonus',
     description: 'Alle plasser besatt, alle til stede. Det merkes.',
     recipe: 'Alle vaktplasser besatt og ingen fravær',
+    starter: true,
     effect: { stress: -0.5, trivsel: 2 },
     test: (c) => c.absent === 0 && c.present.length >= c.slots && c.slots >= 3,
   },
@@ -195,3 +210,8 @@ export const SYNERGIES: SynergyDef[] = [
 ]
 
 export const SYNERGY_BY_ID: Record<string, SynergyDef> = Object.fromEntries(SYNERGIES.map((s) => [s.id, s]))
+
+export const BONUS_SYNERGIES: SynergyDef[] = SYNERGIES.filter((s) => s.tone === 'bonus')
+
+/** Synergiene spilleren kjenner fra første vakt. */
+export const STARTER_SYNERGY_IDS: string[] = BONUS_SYNERGIES.filter((s) => s.starter).map((s) => s.id)

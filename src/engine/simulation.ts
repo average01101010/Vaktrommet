@@ -1,27 +1,33 @@
 import { BALANCE, TIERS } from '@/data/balance'
-import { DILEMMAS } from '@/data/dilemmas'
+import { DILEMMA_BY_ID, RANDOM_DILEMMAS } from '@/data/dilemmas'
 import { PASS_XP } from '@/data/economy'
 import { INSPECTIONS } from '@/data/league'
 import { RESIDENT_PROFILES } from '@/data/residents'
+import { STARTER_SYNERGY_IDS, SYNERGY_BY_ID } from '@/data/synergies'
+import { THANKS_FROM, THANKS_TEXTS, THANKS_TEXTS_BY_PROFILE } from '@/data/thanks'
 import { emptyUpgradeLevels } from '@/data/upgrades'
 import { WARD_TYPE_ORDER } from '@/data/wards'
 import type {
+  DiscoveryState,
   GameEvent,
   GameState,
   Modifiers,
   OfflineReport,
   LifetimeStats,
   PrestigeState,
+  Resident,
   Settings,
   ShiftAccumulator,
   ShiftEvaluation,
   SkillId,
   StaffMember,
+  StreakState,
+  ThanksState,
   WardTypeId,
 } from '@/types'
 import { maxSkillLevelFor, modifiersFor, offlineCapHours, tierFor } from './modifiers'
 import { computeDemand, syncResidents } from './residents'
-import { rand, randInt, seedFrom } from './rng'
+import { pick, rand, randInt, seedFrom } from './rng'
 import { starterStaff } from './staffFactory'
 import { evaluateShift, isAvailable } from './synergy'
 import {
@@ -38,7 +44,7 @@ import {
 } from './time'
 
 /** Versjon av lagringsformatet. Økes når GameState endrer form – se engine/migrate. */
-export const STATE_VERSION = 3
+export const STATE_VERSION = 4
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
 
@@ -67,6 +73,12 @@ export const emptyLifetime = (): LifetimeStats => ({
 })
 
 export const defaultSettings = (): Settings => ({ sound: true, haptics: true, notifications: false })
+
+export const defaultDiscoveries = (): DiscoveryState => ({ synergies: [...STARTER_SYNERGY_IDS], unseen: [] })
+
+export const defaultThanks = (): ThanksState => ({ activeUntil: 0, cards: [], total: 0 })
+
+export const defaultStreak = (): StreakState => ({ count: 0, lastDay: null, freeWeek: null, best: 0, total: 0 })
 
 export const defaultPrestige = (): PrestigeState => ({
   rotations: 0,
@@ -115,6 +127,7 @@ export function createInitialState(nowMs: number, seed: number = nowMs): GameSta
       nextAt: 6 * MIN_PER_HOUR,
       recent: ['kaffekasse'],
       counter: 1,
+      followUps: [],
     },
     shift: { current: newAccumulator(0), last: null, reportCounter: 0 },
     quality: {
@@ -135,6 +148,9 @@ export function createInitialState(nowMs: number, seed: number = nowMs): GameSta
       adsWatched: 0,
       purchases: [],
     },
+    discoveries: defaultDiscoveries(),
+    thanks: defaultThanks(),
+    streak: defaultStreak(),
     settings: defaultSettings(),
     events: [],
     eventCounter: 0,
@@ -193,22 +209,74 @@ export function syncCalendar(d: GameState, nowMs: number): void {
   }
 }
 
-function spawnDilemma(d: GameState): void {
-  const active = new Set(d.dilemmas.active.map((a) => a.defId))
-  const recent = new Set(d.dilemmas.recent)
-  let pool = DILEMMAS.filter((def) => (def.minTier ?? 0) <= d.tier && !active.has(def.id) && !recent.has(def.id))
-  if (pool.length === 0) pool = DILEMMAS.filter((def) => (def.minTier ?? 0) <= d.tier && !active.has(def.id))
-  if (pool.length === 0) return
-  const def = pool[Math.floor(rand(d) * pool.length)]
+function postDilemma(d: GameState, defId: string, followUpOf?: string): void {
   d.dilemmas.counter++
   d.dilemmas.active.push({
     uid: d.dilemmas.counter,
-    defId: def.id,
+    defId,
     postedAt: d.minute,
     tilt: Math.round((rand(d) * 8 - 4) * 10) / 10,
+    ...(followUpOf ? { followUpOf } : {}),
   })
+}
+
+function spawnDilemma(d: GameState): void {
+  const active = new Set(d.dilemmas.active.map((a) => a.defId))
+  const recent = new Set(d.dilemmas.recent)
+  let pool = RANDOM_DILEMMAS.filter((def) => (def.minTier ?? 0) <= d.tier && !active.has(def.id) && !recent.has(def.id))
+  if (pool.length === 0) pool = RANDOM_DILEMMAS.filter((def) => (def.minTier ?? 0) <= d.tier && !active.has(def.id))
+  if (pool.length === 0) return
+  const def = pool[Math.floor(rand(d) * pool.length)]
+  postDilemma(d, def.id)
   d.dilemmas.recent.push(def.id)
   if (d.dilemmas.recent.length > 10) d.dilemmas.recent.shift()
+}
+
+/**
+ * Utsatte saker kommer tilbake. Oppfølginger får henge selv om tavla er full
+ * (én lapp over taket), så de aldri forsvinner i køen.
+ */
+function postDueFollowUps(d: GameState): void {
+  if (d.dilemmas.followUps.length === 0) return
+  const waiting = []
+  for (const f of d.dilemmas.followUps) {
+    const due = f.dueAt <= d.minute
+    const room = d.dilemmas.active.length <= BALANCE.dilemmaMaxActive
+    const alreadyUp = d.dilemmas.active.some((a) => a.defId === f.defId)
+    if (due && room && !alreadyUp && DILEMMA_BY_ID[f.defId]) postDilemma(d, f.defId, f.sourceId)
+    else if (DILEMMA_BY_ID[f.defId] && !(due && alreadyUp)) waiting.push(f)
+  }
+  d.dilemmas.followUps = waiting
+}
+
+/** Første gang en bonus-synergi treffes: lås den opp i oppdagelsesboka. */
+function discoverSynergies(d: GameState, ev: ShiftEvaluation, totals: StepTotals): void {
+  for (const syn of ev.synergies) {
+    if (syn.tone !== 'bonus' || d.discoveries.synergies.includes(syn.id)) continue
+    d.discoveries.synergies.push(syn.id)
+    d.discoveries.unseen.push(syn.id)
+    d.resources.kaffekopper += BALANCE.discoveryKaffekopper
+    totals.discoveries++
+    pushEvent(d, 'oppdagelse', `Ny synergi oppdaget: ${SYNERGY_BY_ID[syn.id]?.name ?? syn.name}. +${BALANCE.discoveryKaffekopper} Kaffekopp.`)
+  }
+}
+
+/** Takkekort fra pårørende når en beboer skrives ut fra en avdeling med høy trivsel. */
+function sendThanksCard(d: GameState, r: Resident, totals: StepTotals): void {
+  const texts = THANKS_TEXTS_BY_PROFILE[r.profile] ?? THANKS_TEXTS
+  d.thanks.total++
+  d.thanks.cards.unshift({
+    id: d.thanks.total,
+    minute: d.minute,
+    resident: r.name,
+    from: `${pick(d, THANKS_FROM)} ${r.name}`,
+    text: pick(d, texts),
+  })
+  if (d.thanks.cards.length > 6) d.thanks.cards.length = 6
+  d.thanks.activeUntil = d.minute + BALANCE.thanksHours * MIN_PER_HOUR
+  totals.thanks++
+  const from = d.thanks.cards[0].from
+  pushEvent(d, 'takk', `Takkekort fra ${from.charAt(0).toLowerCase()}${from.slice(1)}. Trivselsmålet løftes i ${BALANCE.thanksHours} timer.`)
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +290,8 @@ export interface StepTotals {
   shifts: number
   sick: number
   discharged: number
+  thanks: number
+  discoveries: number
 }
 
 interface SimContext {
@@ -250,6 +320,7 @@ function step(d: GameState, ctx: SimContext): void {
   }
   const ev = evaluateShift(d, shift, mods, ctx.demand)
   const acc = d.shift.current
+  discoverSynergies(d, ev, totals)
 
   // ---- Økonomi ----
   const fp = ev.rates.fagpoeng * h
@@ -344,8 +415,13 @@ function hourly(d: GameState, ev: ShiftEvaluation, ctx: SimContext): void {
   }
 
   // ---- Utskrivning og innkomst ----
+  const trivselAtDischarge = d.ward.trivsel
   const change = syncResidents(d, mods)
   totals.discharged += change.discharged.length
+  for (const r of change.discharged) {
+    // Bare endt liggetid teller – ikke rom som legges ned.
+    if (r.dischargeAt <= d.minute && trivselAtDischarge > BALANCE.thanksTrivselThreshold) sendThanksCard(d, r, totals)
+  }
   for (const r of change.admitted) {
     const out = change.discharged.find((x) => x.room === r.room)
     const who = `${r.name} (${RESIDENT_PROFILES[r.profile].short.toLowerCase()})`
@@ -369,7 +445,8 @@ function hourly(d: GameState, ev: ShiftEvaluation, ctx: SimContext): void {
   q.competence += (ev.utilization - q.competence) * a
   q.hours++
 
-  // ---- Nye Post-it-lapper ----
+  // ---- Post-it-lapper: utsatte saker først, så nye ----
+  postDueFollowUps(d)
   if (d.minute >= d.dilemmas.nextAt) {
     if (d.dilemmas.active.length < BALANCE.dilemmaMaxActive) spawnDilemma(d)
     d.dilemmas.nextAt = d.minute + randInt(d, BALANCE.dilemmaMinHours, BALANCE.dilemmaMaxHours) * MIN_PER_HOUR
@@ -425,7 +502,7 @@ export interface SimulationResult {
  */
 export function simulate(state: GameState, gameMinutes: number, startMs?: number): SimulationResult {
   const d = cloneState(state)
-  const totals: StepTotals = { fagpoeng: 0, budget: 0, avvik: 0, shifts: 0, sick: 0, discharged: 0 }
+  const totals: StepTotals = { fagpoeng: 0, budget: 0, avvik: 0, shifts: 0, sick: 0, discharged: 0, thanks: 0, discoveries: 0 }
   const ctx: SimContext = { mods: modifiersFor(d), totals, demandKey: '', demand: null }
   const steps = Math.max(0, Math.floor(gameMinutes / BALANCE.stepMin))
 
@@ -496,6 +573,8 @@ export function catchUp(state: GameState, nowMs: number): CatchUpResult {
           shifts: totals.shifts,
           sick: totals.sick,
           discharged: totals.discharged,
+          thanks: totals.thanks,
+          discoveries: totals.discoveries,
           trivselFrom: before.ward.trivsel,
           trivselTo: d.ward.trivsel,
           newDilemmas: Math.max(0, d.dilemmas.active.length - before.dilemmas.active.length),

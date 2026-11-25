@@ -1,5 +1,5 @@
 import { BALANCE } from '@/data/balance'
-import type { GameState, LifetimeStats, QualityStats } from '@/types'
+import type { GameState, LeaderboardEntry, LifetimeStats, QualityStats } from '@/types'
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
@@ -34,6 +34,25 @@ export function careerStats(state: GameState): LifetimeStats {
     sickDays: banked.sickDays + now.sickDays,
     recruits: banked.recruits + now.recruits,
   }
+}
+
+export interface Rival<T extends { score: number }> {
+  entry: T
+  /** Poeng spilleren mangler for å gå forbi. */
+  gap: number
+}
+
+/**
+ * «Rivalen rett over deg»: konkurrenten med lavest poengsum som fortsatt er
+ * strengt høyere enn spillerens. Null når spilleren leder utvalget.
+ */
+export function findRival<T extends Pick<LeaderboardEntry, 'score' | 'isPlayer'>>(entries: readonly T[], playerScore: number): Rival<T> | null {
+  let best: T | null = null
+  for (const e of entries) {
+    if (e.isPlayer || e.score <= playerScore) continue
+    if (!best || e.score < best.score) best = e
+  }
+  return best ? { entry: best, gap: best.score - playerScore + 1 } : null
 }
 
 export interface QualityBreakdown {

@@ -1,27 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { BALANCE, INSPECTION_TIERS, RARITY } from '@/data/balance'
-import { DILEMMAS } from '@/data/dilemmas'
-import { BANNERS } from '@/data/economy'
+import { BALANCE, INSPECTION_TIERS, RARITY, TIERS } from '@/data/balance'
+import { DILEMMA_BY_ID, DILEMMAS, RANDOM_DILEMMAS } from '@/data/dilemmas'
+import { BANNERS, MORGENKAFFE_REWARDS, SEASON_PASS_LEVELS } from '@/data/economy'
+import { BONUS_SYNERGIES, STARTER_SYNERGY_IDS } from '@/data/synergies'
 import { SKILL_ORDER } from '@/data/professions'
 import { RESIDENT_PROFILES } from '@/data/residents'
 import { WARD_TYPES } from '@/data/wards'
 import type { GameState, SkillId, StaffMember } from '@/types'
 import {
+  acknowledgeDiscoveries,
   assignStaff,
   buyUpgrade,
   canRotate,
+  checkInMorgenkaffe,
   claimInspectionTier,
+  claimPassReward,
   exportSave,
   grantPurchase,
   importSave,
+  incomeRates,
   parseSave,
   recruit,
   resetGame,
   resolveDilemma,
+  resolveReward,
   restorePurchases,
   rotateWard,
   rotationPreview,
   startCourse,
+  streakStatus,
   timeSkip,
   unassignSlot,
   updateProfile,
@@ -32,11 +39,11 @@ import { migrateGameState } from './migrate'
 import { bedsFor, maxSkillLevelFor, modifiersFor, tierThreshold } from './modifiers'
 import { upcomingNotifications } from './notifications'
 import { computeDemand, syncResidents } from './residents'
-import { careerStats, driftScore, qualityIndex } from './scoring'
+import { careerStats, driftScore, findRival, qualityIndex } from './scoring'
 import { catchUp, createInitialState, defaultSettings, inspectionAverage, simulate, STATE_VERSION } from './simulation'
 import { emptySkills } from './staffFactory'
 import { evaluateShift } from './synergy'
-import { liveMinute, shiftAt, STEP_MS } from './time'
+import { liveMinute, osloDayIndex, osloWeekKey, shiftAt, STEP_MS } from './time'
 
 const T0 = Date.UTC(2026, 10, 25, 8, 0, 0)
 const HOUR = 3_600_000
@@ -615,6 +622,10 @@ describe('trygg lagringsmigrering', () => {
     delete s.shift.current.focusSum
     delete s.shift.last.inspectionScore
     delete s.settings
+    delete s.discoveries
+    delete s.thanks
+    delete s.streak
+    delete s.dilemmas.followUps
     return s
   }
 
@@ -642,6 +653,10 @@ describe('trygg lagringsmigrering', () => {
     expect(m.shift.current.focusSum).toBe(0)
     expect(m.settings).toEqual(defaultSettings())
     expect(m.prestige.bankedLifetime.shiftsCompleted).toBe(0)
+    expect(m.discoveries).toEqual({ synergies: STARTER_SYNERGY_IDS, unseen: [] })
+    expect(m.thanks).toEqual({ activeUntil: 0, cards: [], total: 0 })
+    expect(m.streak).toEqual({ count: 0, lastDay: null, freeWeek: null, best: 0, total: 0 })
+    expect(m.dilemmas.followUps).toEqual([])
 
     // Tid: minuttet ligger på et helt steg, og gamle felter er borte.
     expect(m.minute).toBe(14_640)
@@ -693,8 +708,9 @@ describe('handlinger og innhold', () => {
   })
 
   it('alle dilemmaer har faglig begrunnelse, kilde og tre unike valg', () => {
-    expect(DILEMMAS).toHaveLength(24)
-    expect(new Set(DILEMMAS.map((d) => d.id)).size).toBe(24)
+    expect(RANDOM_DILEMMAS).toHaveLength(24)
+    expect(DILEMMAS.filter((d) => d.followUpOnly)).toHaveLength(5)
+    expect(new Set(DILEMMAS.map((d) => d.id)).size).toBe(DILEMMAS.length)
     for (const d of DILEMMAS) {
       expect(d.fagligBegrunnelse.length, d.id).toBeGreaterThan(60)
       expect(d.kilde.length, d.id).toBeGreaterThan(3)
@@ -937,5 +953,345 @@ describe('nullstilling og gjenoppretting av kjøp', () => {
     const b = restorePurchases(s, ['vip'], T0)
     expect(b).toMatchObject({ restored: ['vip'] })
     expect(restorePurchases(a.state, ['vip', 'tilsynspass'], T0)).toMatchObject({ restored: [] })
+  })
+})
+
+describe('kaffekopp-balanse og skalerte belønninger', () => {
+  it('gir færre gratis Kaffekopper ved nivåhopp og i passets gratissti', () => {
+    expect(TIERS.reduce((n, t) => n + t.reward, 0)).toBe(60)
+    expect(SEASON_PASS_LEVELS.reduce((n, l) => n + (l.free.kaffekopper ?? 0), 0)).toBe(15)
+    expect(BALANCE.rotationKaffekopper).toBe(25)
+  })
+
+  it('faste belønninger går uendret gjennom', () => {
+    const fixed = { kaffekopper: 5, passXp: 60 }
+    expect(resolveReward(fresh(), fixed)).toBe(fixed)
+  })
+
+  it('timebaserte belønninger følger spillerens inntjening', () => {
+    const early = fresh()
+    const rates = incomeRates(early)
+    const r = resolveReward(early, { budgetHours: 6, fagpoengHours: 8 })
+    expect(r.budget).toBe(Math.round((6 * rates.budget) / 50) * 50)
+    expect(r.fagpoeng).toBe(Math.round(8 * rates.fagpoeng))
+    expect(r.budgetHours).toBeUndefined()
+
+    // Samme belønning på en utbygd avdeling på nivå 5 er verdt mye mer.
+    const late = fresh()
+    late.tier = 4
+    late.upgrades.nyfloy = 2
+    late.upgrades.kompetansesenter = 3
+    late.upgrades.stillerapport = 5
+    syncResidents(late, mods(late))
+    const all = Object.fromEntries(SKILL_ORDER.map((k) => [k, 5])) as Record<SkillId, number>
+    for (const shift of ['dag', 'aften', 'natt'] as const) {
+      const crew = [1, 2, 3, 4, 5].map((i) => staffWith(`${shift}${i}`, 'sykepleier', all))
+      for (const m of crew) late.staff[m.id] = m
+      late.staffOrder.push(...crew.map((m) => m.id))
+      late.roster[shift] = crew.map((m) => m.id)
+    }
+    const big = resolveReward(late, { budgetHours: 6, fagpoengHours: 8 })
+    expect(big.budget!).toBeGreaterThan(r.budget! * 3)
+    expect(big.fagpoeng!).toBeGreaterThan(r.fagpoeng! * 5)
+    // Belønningen tilsvarer alltid det samme antallet timer med drift.
+    expect(big.budget! / incomeRates(late).budget).toBeCloseTo(6, 0)
+  })
+
+  it('har et gulv så en tom turnus ikke gir null', () => {
+    const s = fresh()
+    s.roster = { dag: [null, null, null, null, null], aften: [null, null, null, null, null], natt: [null, null, null, null, null] }
+    expect(incomeRates(s)).toEqual({ budget: BALANCE.rewardMinBudgetPerHour, fagpoeng: BALANCE.rewardMinFagpoengPerHour })
+    expect(resolveReward(s, { fagpoengHours: 8 }).fagpoeng).toBe(40)
+  })
+
+  it('passet utbetaler det skalerte beløpet', () => {
+    const s = fresh()
+    s.monetization.seasonPass.xp = 300
+    const expected = resolveReward(s, SEASON_PASS_LEVELS[0].free)
+    const r = claimPassReward(s, 1, 'free')
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.reward).toEqual(expected)
+    expect(r.state.resources.budget).toBe(s.resources.budget + expected.budget!)
+    expect(claimPassReward(r.state, 1, 'free').ok).toBe(false)
+  })
+})
+
+describe('oppfølging av utsatte saker', () => {
+  const withNote = (defId: string): GameState => {
+    const s = fresh()
+    s.dilemmas.active = [{ uid: 50, defId, postedAt: 0, tilt: 0 }]
+    s.dilemmas.counter = 50
+    s.dilemmas.nextAt = 10_000_000 // ingen tilfeldige lapper i disse testene
+    return s
+  }
+
+  it('alle oppfølginger peker på et dilemma som bare kan komme som oppfølging', () => {
+    const links = DILEMMAS.flatMap((d) => d.options.filter((o) => o.followUp).map((o) => o.followUp!))
+    expect(links).toHaveLength(5)
+    for (const link of links) {
+      expect(DILEMMA_BY_ID[link.id]?.followUpOnly, link.id).toBe(true)
+      expect(link.afterHours[0]).toBeGreaterThanOrEqual(24)
+      expect(link.afterHours[1]).toBeLessThanOrEqual(48)
+    }
+    expect(RANDOM_DILEMMAS.some((d) => d.followUpOnly)).toBe(false)
+  })
+
+  it('et utsatt valg planlegger en oppfølging 1–2 spilldøgn fram', () => {
+    const s = withNote('paaroerende_klage')
+    const r = resolveDilemma(s, 50, 'skriftlig')
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.resolution.followUpScheduled).toBe(true)
+    expect(r.state.dilemmas.followUps).toHaveLength(1)
+    const f = r.state.dilemmas.followUps[0]
+    expect(f).toMatchObject({ defId: 'klage_statsforvalter', sourceId: 'paaroerende_klage' })
+    expect(f.dueAt).toBeGreaterThanOrEqual(s.minute + 24 * 60)
+    expect(f.dueAt).toBeLessThanOrEqual(s.minute + 48 * 60)
+
+    // Ikke før tiden ...
+    const before = simulate(r.state, f.dueAt - s.minute - 60).state
+    expect(before.dilemmas.active).toHaveLength(0)
+    // ... men når fristen er ute, henger lappen der.
+    const after = simulate(r.state, f.dueAt - s.minute).state
+    expect(after.dilemmas.active).toHaveLength(1)
+    expect(after.dilemmas.active[0]).toMatchObject({ defId: 'klage_statsforvalter', followUpOf: 'paaroerende_klage' })
+    expect(after.dilemmas.followUps).toHaveLength(0)
+  })
+
+  it('å løse saken skikkelig gir ingen oppfølging', () => {
+    const r = resolveDilemma(withNote('paaroerende_klage'), 50, 'samtale_naa')
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.resolution.followUpScheduled).toBe(false)
+    expect(r.state.dilemmas.followUps).toHaveLength(0)
+  })
+
+  it('oppfølgingen er strengere enn det beste førstevalget, og har ingen gratis utvei', () => {
+    for (const def of DILEMMAS.filter((d) => d.followUpOnly)) {
+      for (const o of def.options) {
+        const e = o.effect
+        const hasCost = (e.avvik ?? 0) > 0 || (e.budget ?? 0) < 0 || (e.trivsel ?? 0) < 0 || (e.stress ?? 0) > 0
+        expect(hasCost, `${def.id}/${o.id}`).toBe(true)
+      }
+    }
+  })
+
+  it('henges opp selv om korktavla er full', () => {
+    const s = withNote('kaffekasse')
+    s.dilemmas.active.push({ uid: 51, defId: 'aktivitet', postedAt: 0, tilt: 0 }, { uid: 52, defId: 'smittevern', postedAt: 0, tilt: 0 })
+    s.dilemmas.followUps = [{ defId: 'vekttap_forverret', dueAt: 60, sourceId: 'ernaering_vekttap' }]
+    const after = simulate(s, 60).state
+    expect(after.dilemmas.active).toHaveLength(BALANCE.dilemmaMaxActive + 1)
+    expect(after.dilemmas.active.at(-1)?.defId).toBe('vekttap_forverret')
+  })
+
+  it('oppfølgingsdilemmaer dukker aldri opp tilfeldig', () => {
+    let s = fresh()
+    const seen = new Set<string>()
+    for (let i = 0; i < 150; i++) {
+      s = simulate(s, DAY).state
+      for (const a of s.dilemmas.active) seen.add(a.defId)
+      s.dilemmas.active = []
+    }
+    expect(seen.size).toBeGreaterThan(12)
+    expect([...seen].some((id) => DILEMMA_BY_ID[id].followUpOnly)).toBe(false)
+  })
+})
+
+describe('oppdagelsesbok for synergier', () => {
+  it('flertallet av bonus-synergiene starter uoppdaget, med faglig hint', () => {
+    const s = fresh()
+    expect(s.discoveries.synergies).toEqual(STARTER_SYNERGY_IDS)
+    const hidden = BONUS_SYNERGIES.filter((b) => !s.discoveries.synergies.includes(b.id))
+    expect(hidden.length).toBeGreaterThan(BONUS_SYNERGIES.length / 2)
+    for (const h of hidden) expect(h.hint?.length ?? 0, h.id).toBeGreaterThan(20)
+  })
+
+  it('låses opp første gang kombinasjonen treffes – med Kaffekopp-bonus, én gang', () => {
+    const base = fresh()
+    const state = withDayShift(base, [
+      staffWith('a', 'sykepleier', { medikament: 3 }),
+      staffWith('b', 'vernepleier', { medikament: 2 }),
+    ])
+    // Effekten gjelder også før synergien er oppdaget.
+    expect(evaluateShift(state, 'dag', mods(state)).synergies.map((x) => x.id)).toContain('dobbeltkontroll')
+    expect(state.discoveries.synergies).not.toContain('dobbeltkontroll')
+
+    const { state: after, totals } = simulate(state, BALANCE.stepMin)
+    expect(after.discoveries.synergies).toContain('dobbeltkontroll')
+    expect(after.discoveries.unseen).toEqual(['dobbeltkontroll'])
+    expect(totals.discoveries).toBe(1)
+    expect(after.resources.kaffekopper).toBe(state.resources.kaffekopper + BALANCE.discoveryKaffekopper)
+    expect(after.events[0].kind).toBe('oppdagelse')
+
+    const later = simulate(after, 4 * 60)
+    expect(later.totals.discoveries).toBe(0)
+    expect(later.state.resources.kaffekopper).toBe(after.resources.kaffekopper)
+  })
+
+  it('feiringen kvitteres ut, og funnene følger med til neste avdeling', () => {
+    const s = fresh()
+    s.discoveries.synergies.push('saarteam')
+    s.discoveries.unseen.push('saarteam')
+    const ack = acknowledgeDiscoveries(s)
+    if (!ack.ok) throw new Error(ack.reason)
+    expect(ack.state.discoveries.unseen).toEqual([])
+    expect(ack.state.discoveries.synergies).toContain('saarteam')
+    expect(acknowledgeDiscoveries(ack.state)).toMatchObject({ ok: true, state: ack.state })
+
+    ack.state.tier = 5
+    const r = rotateWard(ack.state, { wardType: 'demens', keepStaff: [] })
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.state.discoveries.synergies).toContain('saarteam')
+  })
+})
+
+describe('takkekort ved utskrivning', () => {
+  const dischargeSoon = (trivsel: number): GameState => {
+    const s = fresh()
+    s.ward.trivsel = trivsel
+    s.residents[0].dischargeAt = 60
+    return s
+  }
+
+  it('høy trivsel ved utskrivning gir takkekort og +10 % trivselsmål i 4 timer', () => {
+    const s = dischargeSoon(92)
+    const name = s.residents[0].name
+    const { state, totals } = simulate(s, 60)
+    expect(totals.thanks).toBe(1)
+    expect(state.thanks.total).toBe(1)
+    expect(state.thanks.cards[0]).toMatchObject({ resident: name, minute: 60 })
+    expect(state.thanks.cards[0].from).toContain(name)
+    expect(state.thanks.activeUntil).toBe(60 + BALANCE.thanksHours * 60)
+    expect(state.events.some((e) => e.kind === 'takk')).toBe(true)
+
+    const boosted = evaluateShift(state, 'dag', mods(state))
+    const plain = evaluateShift({ ...state, thanks: { ...state.thanks, activeUntil: 0 } }, 'dag', mods(state))
+    expect(boosted.thanksBoost).toBe(true)
+    expect(plain.thanksBoost).toBe(false)
+    expect(boosted.trivselTarget).toBeCloseTo(Math.min(100, plain.trivselTarget * (1 + BALANCE.thanksTrivselBoost)))
+
+    const expired = simulate(state, BALANCE.thanksHours * 60).state
+    expect(evaluateShift(expired, shiftAt(expired.minute), mods(expired)).thanksBoost).toBe(false)
+  })
+
+  it('ingen takkekort når trivselen er 75 % eller lavere', () => {
+    const { state, totals } = simulate(dischargeSoon(74), 60)
+    expect(totals.discharged).toBe(1)
+    expect(totals.thanks).toBe(0)
+    expect(state.thanks.activeUntil).toBe(0)
+  })
+
+  it('beholder bare de siste kortene', () => {
+    let s = fresh()
+    for (let i = 0; i < 9; i++) {
+      s.ward.trivsel = 95
+      s.residents[0].dischargeAt = s.minute + 60
+      s = simulate(s, 60).state
+    }
+    expect(s.thanks.total).toBe(9)
+    expect(s.thanks.cards).toHaveLength(6)
+    expect(s.thanks.cards[0].id).toBe(9)
+  })
+})
+
+describe('morgenkaffe-rekka', () => {
+  // Mandag 23. november 2026 kl. 08:00 norsk tid (uke 48).
+  const MON = Date.UTC(2026, 10, 23, 7, 0, 0)
+  const day = (n: number) => MON + n * 24 * HOUR
+  const checkIn = (s: GameState, at: number): GameState => {
+    const r = checkInMorgenkaffe(s, at)
+    if (!r.ok) throw new Error(r.reason)
+    return r.state
+  }
+
+  it('regner datoen i norsk tid', () => {
+    const lateEvening = Date.UTC(2026, 10, 23, 22, 30) // 23:30 i Oslo
+    const afterMidnight = Date.UTC(2026, 10, 23, 23, 30) // 00:30 i Oslo dagen etter
+    expect(osloDayIndex(afterMidnight)).toBe(osloDayIndex(lateEvening) + 1)
+    expect(osloWeekKey(MON)).toBe('2026-W48')
+    expect(osloWeekKey(day(7))).toBe('2026-W49')
+  })
+
+  it('én innsjekk per dag, og rekka vokser dag for dag', () => {
+    let s = fresh()
+    expect(streakStatus(s, MON)).toMatchObject({ canCheckIn: true, nextCount: 1, rewardDay: 1, broken: false })
+    s = checkIn(s, MON)
+    expect(s.streak).toMatchObject({ count: 1, best: 1, total: 1 })
+    expect(checkInMorgenkaffe(s, MON + 5 * HOUR).ok).toBe(false)
+    expect(streakStatus(s, MON + 5 * HOUR).canCheckIn).toBe(false)
+    s = checkIn(s, day(1))
+    s = checkIn(s, day(2))
+    expect(s.streak.count).toBe(3)
+  })
+
+  it('belønningen skalerer med inntjeningen, og dag 7 gir Kaffekopper', () => {
+    const s = fresh()
+    const r = checkInMorgenkaffe(s, MON)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.reward).toEqual(resolveReward(s, MORGENKAFFE_REWARDS[0]))
+    expect(r.state.resources.budget).toBe(s.resources.budget + r.reward.budget!)
+
+    let seven = fresh()
+    for (let i = 0; i < 6; i++) seven = checkIn(seven, day(i))
+    const last = checkInMorgenkaffe(seven, day(6))
+    if (!last.ok) throw new Error(last.reason)
+    expect(last.status.rewardDay).toBe(7)
+    expect(last.reward.kaffekopper).toBe(5)
+    // Dag 8 starter belønningsuka på nytt, men rekka teller videre.
+    expect(streakStatus(last.state, day(7))).toMatchObject({ nextCount: 8, rewardDay: 1 })
+  })
+
+  it('én dag uten innsjekk dekkes av ukas avspaseringsdag', () => {
+    let s = checkIn(checkIn(fresh(), MON), day(1)) // man, tir
+    const status = streakStatus(s, day(3)) // onsdag hoppet over
+    expect(status).toMatchObject({ usesFreeDay: true, nextCount: 3, broken: false, count: 2 })
+    s = checkIn(s, day(3)) // torsdag
+    expect(s.streak.count).toBe(3)
+    expect(s.streak.freeWeek).toBe('2026-W48')
+    expect(streakStatus(s, day(3)).freeDayAvailable).toBe(false)
+  })
+
+  it('en ny glipp i samme uke bryter rekka, men neste uke er fridagen tilbake', () => {
+    let s = checkIn(checkIn(checkIn(fresh(), MON), day(1)), day(3)) // man, tir, (ons fri), tor
+    expect(streakStatus(s, day(5))).toMatchObject({ usesFreeDay: false, broken: true, count: 0, nextCount: 1 })
+    s = checkIn(s, day(5)) // lørdag: fredag hoppet over, fridagen er brukt
+    expect(s.streak.count).toBe(1)
+    expect(s.streak.best).toBe(3)
+
+    s = checkIn(s, day(6)) // søndag
+    s = checkIn(s, day(8)) // tirsdag uke 49: mandag hoppet over, ny fridag
+    expect(s.streak.count).toBe(3)
+    expect(s.streak.freeWeek).toBe('2026-W49')
+  })
+
+  it('to dager uten innsjekk bryter rekka selv med fridagen ubrukt', () => {
+    let s = checkIn(checkIn(fresh(), MON), day(1))
+    expect(streakStatus(s, day(4))).toMatchObject({ freeDayAvailable: true, usesFreeDay: false, broken: true })
+    s = checkIn(s, day(4))
+    expect(s.streak.count).toBe(1)
+    expect(s.streak.freeWeek).toBeNull()
+  })
+})
+
+describe('rivalen rett over deg', () => {
+  const board = [
+    { id: 'a', score: 900 },
+    { id: 'b', score: 310 },
+    { id: 'c', score: 250 },
+    { id: 'meg', score: 200, isPlayer: true },
+    { id: 'd', score: 200 },
+    { id: 'e', score: 40 },
+  ]
+
+  it('finner nærmeste konkurrent med høyere poengsum', () => {
+    const rival = findRival(board, 200)
+    expect(rival?.entry.id).toBe('c')
+    expect(rival?.gap).toBe(51)
+    expect(findRival(board, 305)?.entry.id).toBe('b')
+  })
+
+  it('lik poengsum teller ikke som foran, og lederen har ingen rival', () => {
+    expect(findRival(board, 250)?.entry.id).toBe('b')
+    expect(findRival(board, 900)).toBeNull()
+    expect(findRival([], 10)).toBeNull()
   })
 })

@@ -1,9 +1,6 @@
-/**
- * Personvern og brukervilkår. UTKAST: teksten beskriver hva appen faktisk
- * gjør i dag, men må gjennomgås juridisk – og få inn behandlingsansvarlig og
- * kontaktinformasjon – før lansering med betaling.
- */
-export const LEGAL_IS_DRAFT = true
+import { CONTACT_EMAIL, PUBLISHER } from '@/lib/contact'
+
+/** Personvern og brukervilkår. Teksten beskriver hva appen gjør i dag og oppdateres når det endrer seg. */
 export const LEGAL_UPDATED = '25. november 2026'
 
 export interface LegalSection {
@@ -12,6 +9,13 @@ export interface LegalSection {
 }
 
 export const PRIVACY: LegalSection[] = [
+  {
+    heading: 'Behandlingsansvarlig',
+    body: [
+      `${PUBLISHER} er utgiver av Vaktrommet og behandlingsansvarlig for opplysningene som behandles i spillet.`,
+      `Spørsmål om personvern, innsyn eller sletting kan sendes til ${CONTACT_EMAIL}.`,
+    ],
+  },
   {
     heading: 'Hva som lagres',
     body: [
@@ -49,6 +53,7 @@ export const TERMS: LegalSection[] = [
   {
     heading: 'Om spillet',
     body: [
+      `Vaktrommet utgis av ${PUBLISHER}. Ved å spille godtar du disse vilkårene.`,
       'Vaktrommet er et underholdningsspill. Personer, beboere og hendelser er oppdiktet, og enhver likhet med virkelige personer er tilfeldig.',
     ],
   },
@@ -70,5 +75,9 @@ export const TERMS: LegalSection[] = [
       'Framdriften ligger på enheten din og kan gå tapt hvis nettleserdata slettes. Bruk eksport for å ta en kopi.',
       'Spillet leveres som det er, uten garanti for at framdrift, topplister eller innhold forblir uendret mens det er under utvikling.',
     ],
+  },
+  {
+    heading: 'Kontakt',
+    body: [`Har du spørsmål om vilkårene eller vil melde en feil, når du ${PUBLISHER} på ${CONTACT_EMAIL}.`],
   },
 ]

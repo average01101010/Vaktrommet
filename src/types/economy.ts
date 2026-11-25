@@ -15,6 +15,13 @@ export interface Reward {
   fagpoeng?: number
   kaffekopper?: number
   passXp?: number
+  /**
+   * Kr / Fagpoeng oppgitt som spilltimer med spillerens nåværende inntjening.
+   * Gjøres om til beløp av resolveReward() når belønningen hentes, slik at den
+   * er like mye verdt på nivå 5 som på nivå 1.
+   */
+  budgetHours?: number
+  fagpoengHours?: number
 }
 
 // ---------- Rekruttering (gacha) ----------
