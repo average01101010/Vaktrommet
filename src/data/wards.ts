@@ -1,15 +1,15 @@
 import type { WardTypeDef, WardTypeId } from '@/types'
 
 /**
- * Avdelingstyper. Startavdelingen er et vanlig sykehjem; de fire andre kan
- * velges når du overleverer en avdeling som har nådd toppnivået.
+ * Avdelingstyper. Startavdelingen er en somatisk sykehjemsavdeling. Alle fem
+ * kan velges når du overleverer en avdeling som har nådd toppnivået – også
+ * den du nettopp har hatt, for å løfte fagboka dens videre.
  */
 export const WARD_TYPES: Record<WardTypeId, WardTypeDef> = {
   sykehjem: {
     id: 'sykehjem',
-    name: 'Sykehjemsavdeling',
+    name: 'Somatisk sykehjemsavdeling',
     blurb: 'Langtidsavdeling med blandet beboergruppe. Litt av alt, hele døgnet.',
-    selectable: false,
     profileWeights: { kognitiv: 30, multisyk: 25, saar: 15, ernaering: 15, palliasjon: 8, rehab: 7 },
     stayMult: 1,
     mods: {},
@@ -20,7 +20,6 @@ export const WARD_TYPES: Record<WardTypeId, WardTypeDef> = {
     id: 'demens',
     name: 'Skjermet demensenhet',
     blurb: 'Små, skjermede bogrupper. Miljøterapi og ro er hele faget – særlig etter solnedgang.',
-    selectable: true,
     profileWeights: { kognitiv: 70, ernaering: 12, multisyk: 10, palliasjon: 8 },
     stayMult: 1.3,
     mods: { demandMult: { aften: 1.1, natt: 1.15 }, fagpoengMult: 1.15 },
@@ -35,7 +34,6 @@ export const WARD_TYPES: Record<WardTypeId, WardTypeDef> = {
     id: 'korttid',
     name: 'Korttid og rehabilitering',
     blurb: 'Høyt tempo og rask utskiftning. Nye pasienter fra sykehuset nesten hver dag.',
-    selectable: true,
     profileWeights: { rehab: 50, saar: 20, multisyk: 15, ernaering: 10, palliasjon: 5 },
     stayMult: 0.6,
     mods: { demandMult: { dag: 1.1 }, budgetMult: 1.2 },
@@ -50,7 +48,6 @@ export const WARD_TYPES: Record<WardTypeId, WardTypeDef> = {
     id: 'bofellesskap',
     name: 'Bofellesskap',
     blurb: 'Folk som bor her i årevis. Hverdagsmestring, forutsigbarhet og langsiktig relasjonsarbeid.',
-    selectable: true,
     profileWeights: { mestring: 65, kognitiv: 15, ernaering: 10, multisyk: 10 },
     stayMult: 2,
     mods: { demandMult: { natt: 0.8 }, stressMult: 0.9, fagpoengMult: 1.05 },
@@ -65,7 +62,6 @@ export const WARD_TYPES: Record<WardTypeId, WardTypeDef> = {
     id: 'lindrende',
     name: 'Lindrende enhet',
     blurb: 'Livets siste fase. Faglig krevende, følelsesmessig tungt – og dypt meningsfullt.',
-    selectable: true,
     profileWeights: { palliasjon: 60, multisyk: 15, saar: 15, ernaering: 10 },
     stayMult: 0.8,
     mods: { demandMult: { natt: 1.2 }, stressMult: 1.15, fagpoengMult: 1.25 },
@@ -80,4 +76,5 @@ export const WARD_TYPES: Record<WardTypeId, WardTypeDef> = {
 
 export const WARD_TYPE_ORDER: WardTypeId[] = ['sykehjem', 'demens', 'korttid', 'bofellesskap', 'lindrende']
 
-export const SELECTABLE_WARD_TYPES: WardTypeId[] = WARD_TYPE_ORDER.filter((id) => WARD_TYPES[id].selectable)
+/** Rekkefølgen i oppdragsvalget: spesialavdelingene først, den vanlige sykehjemsavdelingen til slutt. */
+export const ROTATION_WARD_TYPES: WardTypeId[] = ['demens', 'korttid', 'bofellesskap', 'lindrende', 'sykehjem']

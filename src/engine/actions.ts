@@ -880,6 +880,16 @@ export function rotationPreview(state: GameState): RotationPreview {
   }
 }
 
+/** Sjeldenhet og nivå avgjør hvem som er mest verdt å ta med videre: høyest nivå først, så sjeldenhet. */
+export function staffByMerit(state: GameState): StaffId[] {
+  const pos = new Map(state.staffOrder.map((id, i) => [id, i]))
+  return [...state.staffOrder].sort((a, b) => {
+    const x = state.staff[a]
+    const y = state.staff[b]
+    return y.level - x.level || RARITY[y.rarity].order - RARITY[x.rarity].order || pos.get(a)! - pos.get(b)!
+  })
+}
+
 export interface RotationChoice {
   wardType: WardTypeId
   /** Inntil tre nøkkelansatte som blir med videre. */
@@ -895,7 +905,7 @@ export interface RotationChoice {
 export function rotateWard(state: GameState, choice: RotationChoice): ActionResult {
   if (!canRotate(state)) return fail('Avdelingen må være Kompetansesenter før den kan overleveres.')
   const ward = WARD_TYPES[choice.wardType]
-  if (!ward || !ward.selectable) return fail('Ukjent avdelingstype.')
+  if (!ward) return fail('Ukjent avdelingstype.')
   const keep = [...new Set(choice.keepStaff)]
   if (keep.length > BALANCE.rotationKeepStaff) return fail(`Du kan ta med inntil ${BALANCE.rotationKeepStaff} ansatte.`)
   if (keep.some((id) => !state.staff[id])) return fail('Fant ikke alle de valgte ansatte.')

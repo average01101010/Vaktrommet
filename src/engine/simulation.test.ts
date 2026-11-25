@@ -5,8 +5,8 @@ import { BANNERS, MORGENKAFFE_REWARDS, SEASON_PASS_LEVELS } from '@/data/economy
 import { BONUS_SYNERGIES, STARTER_SYNERGY_IDS } from '@/data/synergies'
 import { SKILL_ORDER } from '@/data/professions'
 import { RESIDENT_PROFILES } from '@/data/residents'
-import { WARD_TYPES } from '@/data/wards'
-import type { GameState, SkillId, StaffMember } from '@/types'
+import { ROTATION_WARD_TYPES, WARD_TYPE_ORDER, WARD_TYPES } from '@/data/wards'
+import type { GameState, SkillId, StaffMember, WardTypeId } from '@/types'
 import {
   acknowledgeDiscoveries,
   assignStaff,
@@ -27,6 +27,7 @@ import {
   restorePurchases,
   rotateWard,
   rotationPreview,
+  staffByMerit,
   startCourse,
   streakStatus,
   timeSkip,
@@ -523,7 +524,7 @@ describe('avdelingsrotasjon', () => {
 
   it('avviser ugyldige valg', () => {
     const s = endgame()
-    expect(rotateWard(s, { wardType: 'sykehjem', keepStaff: [] }).ok).toBe(false)
+    expect(rotateWard(s, { wardType: 'finnes-ikke' as WardTypeId, keepStaff: [] }).ok).toBe(false)
     expect(rotateWard(s, { wardType: 'demens', keepStaff: ['s1', 's2', 's3', 's4'] }).ok).toBe(false)
     expect(rotateWard(s, { wardType: 'demens', keepStaff: ['finnes-ikke'] }).ok).toBe(false)
   })
@@ -562,6 +563,37 @@ describe('avdelingsrotasjon', () => {
     // Driftsligaen mister ikke det du har bygget.
     expect(driftScore(n)).toBeGreaterThanOrEqual(before)
     expect(n.minute).toBe(s.minute)
+  })
+
+  it('sykehjemsavdelingen kan velges igjen for å løfte Sykehjemshåndboka videre', () => {
+    const first = rotateWard(endgame(), { wardType: 'sykehjem', keepStaff: ['s1'] })
+    if (!first.ok) throw new Error(first.reason)
+    expect(first.state.wardType).toBe('sykehjem')
+    expect(first.state.prestige.fagboker.sykehjem).toBe(1)
+
+    const again = { ...first.state, tier: 5 }
+    expect(rotationPreview(again).fagbok).toMatchObject({ wardType: 'sykehjem', level: 2, maxed: false })
+    const second = rotateWard(again, { wardType: 'demens', keepStaff: [] })
+    if (!second.ok) throw new Error(second.reason)
+    expect(second.state.prestige.fagboker.sykehjem).toBe(2)
+  })
+
+  it('alle avdelingstyper står i oppdragsvalget, sykehjemsavdelingen sist', () => {
+    expect([...ROTATION_WARD_TYPES].sort()).toEqual([...WARD_TYPE_ORDER].sort())
+    expect(ROTATION_WARD_TYPES.at(-1)).toBe('sykehjem')
+  })
+
+  it('nøkkelansatte sorteres etter nivå, så sjeldenhet', () => {
+    const s = fresh()
+    const [a, b, c] = s.staffOrder
+    for (const id of s.staffOrder) Object.assign(s.staff[id], { level: 1, rarity: 'vanlig' })
+    s.staff[c].level = 9
+    Object.assign(s.staff[b], { level: 4, rarity: 'ildsjel' })
+    Object.assign(s.staff[a], { level: 4, rarity: 'erfaren' })
+    const order = staffByMerit(s)
+    expect(order.slice(0, 3)).toEqual([c, b, a])
+    expect(order.slice(3)).toEqual(s.staffOrder.slice(3))
+    expect(s.staffOrder[0]).toBe(a)
   })
 
   it('ny avdelingstype gir egne beboerprofiler og modifikatorer', () => {

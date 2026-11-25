@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { BALANCE, TIERS } from '@/data/balance'
 import { RESIDENT_PROFILES } from '@/data/residents'
-import { SELECTABLE_WARD_TYPES, WARD_TYPES } from '@/data/wards'
-import { rotationPreview } from '@/engine/actions'
-import { tierThreshold } from '@/engine/modifiers'
+import { ROTATION_WARD_TYPES, WARD_TYPES } from '@/data/wards'
+import { rotationPreview, staffByMerit } from '@/engine/actions'
+import { maxSkillLevelFor, tierThreshold } from '@/engine/modifiers'
 import { cx, fmtCompact } from '@/lib/format'
 import { useGame } from '@/store/gameStore'
-import { useGameState } from '@/store/selectors'
+import { useGameState, useModifiers } from '@/store/selectors'
 import type { ResidentProfileId, StaffId, WardTypeId } from '@/types'
-import { MiniIdCard } from '../staff/IdCard'
+import { KeyStaffCard } from '../staff/IdCard'
 import { Chip } from '../ui/bits'
 import { Icon } from '../ui/Icon'
 import { Sheet } from '../ui/Sheet'
@@ -16,8 +16,9 @@ import { Sheet } from '../ui/Sheet'
 /** Endgame: overlever avdelingen og velg nytt oppdrag. */
 export function RotationSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const game = useGameState()
+  const mods = useModifiers()
   const rotateWard = useGame((s) => s.rotateWard)
-  const [wardType, setWardType] = useState<WardTypeId>(SELECTABLE_WARD_TYPES[0])
+  const [wardType, setWardType] = useState<WardTypeId>(ROTATION_WARD_TYPES[0])
   const [keep, setKeep] = useState<StaffId[]>([])
   const [name, setName] = useState('')
   const [confirm, setConfirm] = useState(false)
@@ -68,7 +69,7 @@ export function RotationSheet({ open, onClose }: { open: boolean; onClose: () =>
       {/* Nytt oppdrag */}
       <div className="etikett mt-4 mb-1.5">Velg nytt oppdrag</div>
       <div className="grid gap-2 sm:grid-cols-2">
-        {SELECTABLE_WARD_TYPES.map((id) => {
+        {ROTATION_WARD_TYPES.map((id, i) => {
           const w = WARD_TYPES[id]
           const active = id === wardType
           const top = (Object.entries(w.profileWeights) as [ResidentProfileId, number][]).sort((a, b) => b[1] - a[1]).slice(0, 2)
@@ -78,6 +79,8 @@ export function RotationSheet({ open, onClose }: { open: boolean; onClose: () =>
               onClick={() => setWardType(id)}
               className={cx(
                 'rounded-2xl border px-3.5 py-3 text-left transition-all',
+                // Et odde antall valg: det siste får hele bredden.
+                i === ROTATION_WARD_TYPES.length - 1 && ROTATION_WARD_TYPES.length % 2 === 1 && 'sm:col-span-2',
                 active ? 'border-rav bg-rav-soft/70 shadow-kort' : 'border-blekk/10 bg-papir hover:border-blekk/25',
               )}
             >
@@ -108,11 +111,13 @@ export function RotationSheet({ open, onClose }: { open: boolean; onClose: () =>
           {keep.length}/{BALANCE.rotationKeepStaff}
         </span>
       </div>
-      <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-        {game.staffOrder.map((id) => (
-          <MiniIdCard
+      <p className="mb-1 text-[11.5px] leading-snug text-blekk-3">Sortert etter nivå og sjeldenhet. De to sterkeste egenskapene vises på kortet.</p>
+      <div className="grid grid-cols-3 gap-x-2 gap-y-2.5 sm:grid-cols-4">
+        {staffByMerit(game).map((id) => (
+          <KeyStaffCard
             key={id}
             staff={game.staff[id]}
+            skillCap={maxSkillLevelFor(game.staff[id], mods)}
             selected={keep.includes(id)}
             onClick={() => toggle(id)}
             className={cx(!keep.includes(id) && keep.length >= BALANCE.rotationKeepStaff && 'opacity-45')}

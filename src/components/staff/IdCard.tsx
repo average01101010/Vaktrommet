@@ -22,19 +22,26 @@ export function SkillPips({
   color,
   max = 5,
   cap = max,
+  compact = false,
 }: {
   level: number
   color: string
   max?: number
   /** Egenskapstaket for den ansatte – nivåer over taket vises som låst. */
   cap?: number
+  /** Litt mindre ruter, for de smale kortene. */
+  compact?: boolean
 }) {
   return (
-    <span className="inline-flex gap-[2px]" aria-label={`Nivå ${level} av ${cap}`}>
+    <span className={cx('inline-flex', compact ? 'gap-[1.5px]' : 'gap-[2px]')} aria-label={`Nivå ${level} av ${cap}`}>
       {Array.from({ length: max }, (_, i) => (
         <span
           key={i}
-          className={cx('h-[7px] w-[7px] rounded-[2px]', i >= cap && i >= level && 'border border-dashed border-blekk/25')}
+          className={cx(
+            'rounded-[2px]',
+            compact ? 'h-[6px] w-[6px]' : 'h-[7px] w-[7px]',
+            i >= cap && i >= level && 'border border-dashed border-blekk/25',
+          )}
           style={{ background: i < level ? color : i >= cap ? 'transparent' : 'rgb(28 37 38 / 0.1)' }}
         />
       ))}
@@ -280,6 +287,106 @@ export function MiniIdCard({
         )}
       </div>
     </Tag>
+  )
+}
+
+/**
+ * ID-kort for valg av nøkkelansatte: nivå, sjeldenhet, særtrekk og de to
+ * sterkeste egenskapene – det du trenger for å velge riktig fagkompetanse.
+ */
+export function KeyStaffCard({
+  staff: s,
+  selected,
+  onClick,
+  skillCap,
+  className,
+}: {
+  staff: StaffMember
+  selected?: boolean
+  onClick?: () => void
+  /** Egenskapstaket for den ansatte. */
+  skillCap: number
+  className?: string
+}) {
+  const prof = PROFESSIONS[s.profession]
+  const rar = RARITY_STYLE[s.rarity]
+  const [first] = s.name.split(' ')
+  const skills = topSkills(s, 2)
+  const label = [
+    s.name,
+    prof.name,
+    `nivå ${s.level}`,
+    RARITY[s.rarity].name.toLowerCase(),
+    s.trait && TRAITS[s.trait].name.toLowerCase(),
+    ...skills.map((id) => `${SKILLS[id].name} ${s.skills[id]}`),
+  ]
+    .filter(Boolean)
+    .join(', ')
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={selected}
+      aria-label={label}
+      className={cx(
+        'relative block w-full pt-[14px] text-left transition-transform duration-200 select-none',
+        selected ? '-translate-y-1' : 'hover:-translate-y-0.5',
+        className,
+      )}
+    >
+      <Lanyard color={prof.color} mini />
+      <div
+        className={cx('laminat !rounded-[0.8rem]', rar.foil && 'laminat-foil')}
+        style={{
+          boxShadow: selected
+            ? '0 0 0 2.5px #D97736, 0 10px 16px -8px rgb(217 119 54 / 0.7)'
+            : rar.ring !== 'transparent'
+              ? `0 0 0 1.5px ${rar.ring}, 0 8px 14px -9px rgb(28 37 38 / 0.45)`
+              : undefined,
+        }}
+      >
+        <div
+          className="flex items-center justify-between px-1.5 py-[3px] text-[8.5px] font-extrabold tracking-[0.12em] text-white/95"
+          style={{ background: prof.color }}
+        >
+          <span>{prof.short}</span>
+          <span className="font-mono text-[9.5px] tracking-normal">N{s.level}</span>
+        </div>
+        <div className="flex items-center gap-1.5 px-1.5 pt-1.5">
+          <div className="w-[38%] shrink-0 overflow-hidden rounded-md border border-blekk/10">
+            <Avatar avatar={s.avatar} profession={s.profession} className="block w-full" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12px] leading-tight font-extrabold tracking-tight">{first}</div>
+            <div className={cx('mt-px text-[10.5px] leading-tight tracking-[-0.05em]', rar.label)} title={RARITY[s.rarity].name}>
+              {'★'.repeat(rar.stars)}
+            </div>
+          </div>
+        </div>
+        <div
+          className={cx(
+            'mx-1.5 mt-1.5 truncate rounded-[5px] px-1 py-[2px] text-center text-[9.5px] leading-tight font-bold',
+            s.trait ? 'bg-skog/[0.08] text-skog' : 'text-blekk/30',
+          )}
+          title={s.trait ? TRAITS[s.trait].description : undefined}
+        >
+          {s.trait ? TRAITS[s.trait].name : 'Ingen særtrekk'}
+        </div>
+        <div className="mt-1.5 space-y-[3px] border-t border-blekk/[0.07] px-1.5 pt-1.5 pb-1.5">
+          {skills.map((id) => (
+            <div key={id} className="flex items-center gap-1">
+              <span className="min-w-0 flex-1 truncate text-[9.5px] font-semibold text-blekk-2">{SKILLS[id].short}</span>
+              <SkillPips level={s.skills[id]} color={SKILLS[id].color} cap={skillCap} compact />
+              <span className="w-[7px] text-right font-mono text-[9.5px] font-bold text-blekk">{s.skills[id]}</span>
+            </div>
+          ))}
+        </div>
+        {selected && (
+          <div className="absolute top-[22px] right-1 z-[8] grid h-[18px] w-[18px] place-items-center rounded-full bg-rav text-white shadow-sm">
+            <Icon name="hake" size={11} />
+          </div>
+        )}
+      </div>
+    </button>
   )
 }
 

@@ -62,6 +62,7 @@ supabase/migrations/   Databaseskjema (ikke kjørt automatisk)
   der 30 % er ressursbruk (dekning per lønnskrone og kompetanseutnyttelse).
 - **Endgame:** På nivå 6 kan avdelingen overleveres. Du velger ny avdelingstype, tar med renommé,
   fagbøker, Kaffekopper og inntil tre ansatte, og bygger opp neste enhet med høyere terskler.
+  Alle fem avdelingstyper kan velges – også sykehjemsavdelingen på nytt, for å løfte fagboka videre.
 
 ## Avdelingsvisningen
 

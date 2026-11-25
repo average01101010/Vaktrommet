@@ -43,8 +43,6 @@ export interface WardTypeDef {
   id: WardTypeId
   name: string
   blurb: string
-  /** Kan velges ved avdelingsrotasjon (startavdelingen kan ikke velges på nytt). */
-  selectable: boolean
   /** Fordeling av beboerprofiler ved innkomst. */
   profileWeights: Partial<Record<ResidentProfileId, number>>
   /** Multiplikator på liggetid (korttid < 1, bofellesskap > 1). */
