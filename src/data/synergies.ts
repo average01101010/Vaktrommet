@@ -17,6 +17,13 @@ export interface SynergyContext {
   countWith: (skill: SkillId, min: number) => number
   avgEnergy: number
   avgStress: number
+  /** Helgevakt. */
+  weekend: boolean
+  /** Dag og aften er fullt bemannet, med sykepleier og uten hviletidsbrudd. */
+  weekendSecure: boolean
+  /** Antall på vakta med kort hviletid og med dobbeltvakt. */
+  restShort: number
+  restDouble: number
 }
 
 export interface SynergyDef {
@@ -152,6 +159,17 @@ export const SYNERGIES: SynergyDef[] = [
     test: (c) => c.absent === 0 && c.present.length >= c.slots && c.slots >= 3,
   },
 
+  {
+    id: 'helgebemanning',
+    name: 'Trygg helgebemanning',
+    tone: 'bonus',
+    description: 'Samme faste helgeteam på dag og aften, med sykepleier på begge. Pårørende møter kjente fjes.',
+    recipe: 'Helg: dag og aften fullt bemannet, med sykepleier og uten brudd på hviletid',
+    hint: 'Helga er når pårørende kommer. Hvem møter de i gangen?',
+    effect: { trivsel: 3, stress: -0.4, avvik: 0.9 },
+    test: (c) => c.weekend && c.weekendSecure,
+  },
+
   // ---------- Problemer ----------
   {
     id: 'tomvakt',
@@ -197,6 +215,24 @@ export const SYNERGIES: SynergyDef[] = [
     recipe: 'Snittenergi under 25',
     effect: { avvik: 1.3, trivsel: -4 },
     test: (c) => c.present.length > 0 && c.avgEnergy < 25,
+  },
+  {
+    id: 'hviletid',
+    name: 'Brudd på hviletid (AML)',
+    tone: 'malus',
+    description: 'Noen står på aften og dag: vakta slutter 23:00, neste begynner 07:00. Åtte timer er ikke nok søvn.',
+    recipe: 'Ansatt på både aften og dag (under 11 t hvile, AML § 10-8)',
+    effect: { trivselMult: 0.95, avvik: 1.1 },
+    test: (c) => c.restShort > 0,
+  },
+  {
+    id: 'dobbeltvakt',
+    name: 'Dobbeltvakt (AML)',
+    tone: 'malus',
+    description: 'Noen jobber 16 timer i strekk gjennom natta. Feilene kommer i de siste timene.',
+    recipe: 'Ansatt på nattevakt og en vakt til (16 t i strekk, AML §§ 10-4 og 10-8)',
+    effect: { trivselMult: 0.9, avvik: 1.25 },
+    test: (c) => c.restDouble > 0,
   },
   {
     id: 'hull',

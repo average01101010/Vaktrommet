@@ -19,6 +19,63 @@ export const minutesLeftInShift = (minute: number): number => MIN_PER_SHIFT - (m
 
 export const minuteOfDay = (minute: number): number => (minute + BALANCE.startMinuteOfDay) % MIN_PER_DAY
 
+// ---------------------------------------------------------------------------
+// Ukedag og helg
+// ---------------------------------------------------------------------------
+
+export const WEEKDAYS = ['Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag', 'Søndag'] as const
+export type Weekday = (typeof WEEKDAYS)[number]
+
+const mod7 = (n: number): number => ((n % 7) + 7) % 7
+
+/** Ukedag for vaktdøgnet (0 = mandag). Døgn 1 er en mandag, og vaktdøgnet skifter kl. 07:00. */
+export const weekdayIndex = (minute: number): number => mod7(Math.floor(minute / MIN_PER_DAY))
+
+export const weekdayName = (minute: number): Weekday => WEEKDAYS[weekdayIndex(minute)]
+
+/** Ukedag etter klokka (skifter ved midnatt) – brukes til å avgjøre helgetillegg. */
+const calendarWeekday = (minute: number): number => mod7(Math.floor((minute + BALANCE.startMinuteOfDay) / MIN_PER_DAY))
+
+/** Spillminuttet vakta som går nå, startet. */
+export const shiftStartAt = (minute: number): number => Math.floor(minute / MIN_PER_SHIFT) * MIN_PER_SHIFT
+
+/** Starten på vakta som går nå, eller neste gang vakta `shift` kommer. */
+export function shiftStartFor(minute: number, shift: ShiftId): number {
+  let start = shiftStartAt(minute)
+  for (let k = 0; k < SHIFT_ORDER.length; k++, start += MIN_PER_SHIFT) if (shiftAt(start) === shift) return start
+  return start
+}
+
+/**
+ * Helgevakt: vakta der flest timer faller på lørdag eller søndag, slik helgetillegget
+ * regnes (lørdag 00:00 – søndag 24:00). Fredagsnatta er derfor helg, søndagsnatta ikke.
+ */
+export const isWeekendShift = (shiftStart: number): boolean => calendarWeekday(shiftStart + MIN_PER_SHIFT / 2) >= 5
+
+export interface TimeInfo {
+  /** Vaktdøgn nr. */
+  day: number
+  /** 0 = mandag … 6 = søndag (for vaktdøgnet). */
+  weekday: number
+  weekdayName: Weekday
+  shift: ShiftId
+  /** Vakta som går, er en helgevakt. */
+  weekend: boolean
+  clock: string
+}
+
+/** Alt klokkevisningen trenger om et tidspunkt. */
+export function getTimeInfo(minute: number): TimeInfo {
+  return {
+    day: dayNumber(minute),
+    weekday: weekdayIndex(minute),
+    weekdayName: weekdayName(minute),
+    shift: shiftAt(minute),
+    weekend: isWeekendShift(shiftStartAt(minute)),
+    clock: formatClock(minute),
+  }
+}
+
 export function formatClock(minute: number): string {
   const m = minuteOfDay(minute)
   const hh = Math.floor(m / 60)

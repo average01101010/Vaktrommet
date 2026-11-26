@@ -298,7 +298,12 @@ describe('kontekstuell utvelgelse', () => {
       for (let i = 0; i < order.length; i++) expect(order.slice(Math.max(0, i - 15), i), `${ward} #${i}`).not.toContain(order[i])
       if (ward !== 'sykehjem') {
         const own = new Set(order.filter((id) => DILEMMA_BY_ID[id].triggers?.wardTypes))
-        expect(own.size, ward).toBeGreaterThanOrEqual(5)
+        // Alle avdelingens egne dilemmaer som ikke krever press, skal ha dukket opp.
+        const unconditional = RANDOM_DILEMMAS.filter(
+          (d) => d.triggers?.wardTypes?.includes(ward) && d.triggers.minStress === undefined && d.triggers.maxTrivsel === undefined,
+        )
+        for (const d of unconditional) expect(own, `${ward}: ${d.id}`).toContain(d.id)
+        expect(own.size, ward).toBeGreaterThanOrEqual(4)
       }
     }
   })

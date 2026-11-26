@@ -89,6 +89,19 @@ Scenen i `src/components/ward/scene/` er et rent 2D-canvas som speiler spilltils
   I utviklingsmodus kan en hendelse startes fra konsollen:
   `__vaktrommetScene.events.force('potteplante')`.
 
+## Ukedag, helg og hviletid
+
+- **Ukedag:** Døgn 1 er en mandag, og ukedagen følger vaktdøgnet (07:00–07:00). `getTimeInfo()` i
+  `engine/time.ts` gir ukedag, vakt, helg og klokkeslett.
+- **Helgevakter** er vaktene der flest timer faller mellom lørdag 00:00 og søndag 24:00: fredagsnatt,
+  hele lørdagen og søndag dag og aften. De gir +25 % lønn (også for vikar og ekstravakt), mindre
+  dokumentasjon og mer miljøarbeid og ro. Er dag og aften fullt bemannet, med sykepleier og uten
+  hviletidsbrudd, slår synergien «Trygg helgebemanning» inn.
+- **Hviletid (AML § 10-8):** Turnusen gjentas hvert døgn. Aften og dag gir kort hviletid (8 t fri fra
+  23:00 til 07:00); natt sammen med en annen vakt gir dobbeltvakt (16 t i strekk gjennom natta).
+  Begge gir personlig stress og dårligere restitusjon, og en negativ synergi på vakta (`engine/rest.ts`).
+  Turnusplanleggeren viser gule AML-varsler på ID-kortene og under vaktplanen.
+
 ## Fravær og bemanning
 
 `src/engine/absence.ts` og `src/data/absence.ts` erstatter den gamle `sickUntil` med et `absence`-objekt
@@ -137,7 +150,7 @@ kilde, står i [`docs/dilemma-gjennomgang.md`](docs/dilemma-gjennomgang.md). Fil
   (`budgetHours` / `fagpoengHours`) og regnes om med `resolveReward()` ut fra dagens inntjening.
 - **Dilemma-oppfølging:** Valg med `followUp` utsetter saken. Et strengere oppfølgingsdilemma
   (`triggers.isFollowUpOnly`) henges opp 24–48 spilltimer senere.
-- **Oppdagelsesbok:** Åtte av elleve bonus-synergier starter skjult med faglig hint. De virker uansett,
+- **Oppdagelsesbok:** Ni av tolv bonus-synergier starter skjult med faglig hint. De virker uansett,
   og låses opp med en Kaffekopp første gang kombinasjonen treffes.
 - **Takkekort:** Skrives en beboer ut mens trivselen er over 75 %, løftes trivselsmålet 10 % i 4 spilltimer.
 - **Morgenkaffe:** Daglig innsjekk etter norsk dato, med én automatisk avspaseringsdag per ISO-uke.

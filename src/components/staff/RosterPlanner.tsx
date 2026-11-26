@@ -7,6 +7,8 @@ import { BONUS_SYNERGIES, SYNERGIES } from '@/data/synergies'
 import { slotsFor } from '@/engine/modifiers'
 import { residentMix } from '@/engine/residents'
 import { canWork } from '@/engine/absence'
+import { restBreachFor, restBreachText } from '@/engine/rest'
+import { shiftStartFor, weekdayName } from '@/engine/time'
 import { cx, fmtInt, fmtPct } from '@/lib/format'
 import { useGame } from '@/store/gameStore'
 import { shiftsByStaff, useCurrentShift, useGameState, useModifiers, useShiftEvaluation } from '@/store/selectors'
@@ -36,6 +38,8 @@ export function RosterPlanner({ onOpenStaff }: { onOpenStaff: (id: StaffId) => v
   const slots = slotsFor(mods)
   const row = game.roster[shift]
   const onShifts = shiftsByStaff(game, mods)
+  // Hviletid (AML § 10-8) for alle i staben, med turnusen slik den står nå
+  const rest = Object.fromEntries(game.staffOrder.map((id) => [id, restBreachFor(game, id, slots)]))
 
   const { drag, start, justDragged } = useStaffDrag((staffId, target, from) => {
     if (target) {
@@ -120,9 +124,12 @@ export function RosterPlanner({ onOpenStaff }: { onOpenStaff: (id: StaffId) => v
         <div className="kort p-3.5">
           <div className="mb-1 flex items-center justify-between gap-2">
             <div>
-              <div className="text-[15px] font-extrabold tracking-tight">{SHIFTS[shift].name}</div>
+              <div className="flex items-center gap-1.5 text-[15px] font-extrabold tracking-tight">
+                {SHIFTS[shift].name}
+                {ev.weekend && <Chip tone="rav" className="!py-0.5 !text-[10px]">Helg · +{Math.round(BALANCE.weekendWageBonus * 100)} % lønn</Chip>}
+              </div>
               <div className="text-[11.5px] font-semibold text-blekk-3">
-                {shift === current ? 'Pågår nå' : 'Planlagt'} · dra eller trykk et ID-kort inn på en plass
+                {weekdayName(shiftStartFor(game.minute, shift))} · {shift === current ? 'pågår nå' : 'planlagt'} · dra eller trykk et ID-kort inn på en plass
               </div>
             </div>
             <div className="text-right">
@@ -157,6 +164,7 @@ export function RosterPlanner({ onOpenStaff }: { onOpenStaff: (id: StaffId) => v
                   {id && game.staff[id] ? (
                     <MiniIdCard
                       staff={game.staff[id]}
+                      restWarning={rest[id]}
                       selected={activeSlot === i}
                       className={cx('touch-pan-y', drag?.staffId === id && 'opacity-30')}
                       onPointerDown={(e) => start(e, id, ref)}
@@ -256,6 +264,7 @@ export function RosterPlanner({ onOpenStaff }: { onOpenStaff: (id: StaffId) => v
                 key={id}
                 staff={s}
                 shifts={onShifts[id]}
+                restWarning={rest[id]}
                 dimmed={here || full || !canWork(s, shift, game.minute)}
                 className={cx('touch-pan-y', drag?.staffId === id && 'opacity-30')}
                 onPointerDown={(e) => start(e, id, null)}
@@ -395,6 +404,26 @@ function ShiftOutlook({ ev, onShowSynergies }: { ev: ShiftEvaluation; onShowSyne
           </div>
         )}
       </div>
+
+      {/* Hviletid: hvem på vakta har for lite fri, og hvorfor */}
+      {ev.restBreaches.length > 0 && (
+        <div className="rounded-xl border-[1.5px] border-[#C99A1E] bg-[#FCE9A6]/80 px-3 py-2.5 text-[#5E4300]">
+          <div className="flex items-center gap-1.5 text-[11px] font-extrabold tracking-wide uppercase">
+            <Icon name="avvik" size={14} /> AML § 10-8 – brudd på hviletid
+          </div>
+          <ul className="mt-1.5 space-y-1">
+            {ev.restBreaches.map((b) => (
+              <li key={b.staffId} className="text-[12px] leading-snug">
+                <b>{game.staff[b.staffId]?.name.split(' ')[0]}</b> ({b.kind === 'kort' ? 'kort hviletid' : 'dobbeltvakt'}): {restBreachText(b.kind, b.shifts)}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[11px] leading-snug opacity-80">
+            Gir mer stress og dårligere restitusjon for den det gjelder, og {ev.restBreaches.some((b) => b.kind === 'dobbel') ? '−10' : '−5'} % trivselsmål og
+            flere avvik på vakta. Turnusen gjentas hvert døgn, så bruddet skjer hver dag.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
@@ -408,6 +437,7 @@ const effectText = (e: (typeof SYNERGIES)[number]['effect']): string => {
   if (e.stress) parts.push(`${e.stress > 0 ? '+' : '−'}${Math.abs(e.stress).toFixed(1).replace('.', ',')} stress/t`)
   if (e.avvik) parts.push(`${pct(e.avvik - 1)} avvik`)
   if (e.xp) parts.push(`${pct(e.xp - 1)} erfaring`)
+  if (e.trivselMult) parts.push(`${pct(e.trivselMult - 1)} trivselsmål`)
   return parts.join(' · ')
 }
 

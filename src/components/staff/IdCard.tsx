@@ -5,7 +5,7 @@ import { ABSENCES } from '@/data/absence'
 import { absenceActive, absenceStatus } from '@/engine/absence'
 import { cx } from '@/lib/format'
 import { useGame } from '@/store/gameStore'
-import type { Rarity, ShiftId, SkillId, StaffMember } from '@/types'
+import type { Rarity, RestBreach, ShiftId, SkillId, StaffMember } from '@/types'
 import { Meter } from '../ui/bits'
 import { Icon } from '../ui/Icon'
 import { Avatar } from './Avatar'
@@ -155,10 +155,33 @@ interface IdCardProps {
   onPointerDown?: (e: ReactPointerEvent<HTMLElement>) => void
   className?: string
   style?: CSSProperties
+  /** Brudd på hviletid (AML § 10-8) med turnusen slik den står. */
+  restWarning?: RestBreach | null
+}
+
+const REST_LABEL: Record<RestBreach, { short: string; long: string }> = {
+  kort: { short: 'Hviletid', long: 'AML: kort hviletid' },
+  dobbel: { short: 'Dobbelt', long: 'AML: dobbeltvakt' },
+}
+
+/** Gult hviletidsvarsel på ID-kortet. */
+function RestWarning({ kind, mini = false }: { kind: RestBreach; mini?: boolean }) {
+  return (
+    <div
+      className={cx(
+        'flex items-center justify-center gap-1 truncate rounded-md border-[1.5px] border-[#C99A1E] bg-[#FCE9A6] font-extrabold text-[#7A5600]',
+        mini ? 'mt-1 px-0.5 py-px text-[7.5px] leading-tight' : 'mx-2.5 mt-2 px-1.5 py-[2px] text-[9.5px]',
+      )}
+      title={kind === 'kort' ? 'Aften og dag: bare 8 timer fri mellom vaktene (AML § 10-8 krever 11)' : 'Dobbeltvakt: 16 timer i strekk gjennom natta'}
+    >
+      <Icon name="avvik" size={mini ? 9 : 11} className="shrink-0" />
+      <span className="truncate">{mini ? REST_LABEL[kind].short : REST_LABEL[kind].long}</span>
+    </div>
+  )
 }
 
 /** Laminert ID-kort med nøkkelbånd – full størrelse. */
-export function IdCard({ staff: s, shifts = [], selected, dimmed, onClick, onPointerDown, className, style }: IdCardProps) {
+export function IdCard({ staff: s, shifts = [], selected, dimmed, onClick, onPointerDown, className, style, restWarning }: IdCardProps) {
   const prof = PROFESSIONS[s.profession]
   const rar = RARITY_STYLE[s.rarity]
   const minute = useGame((g) => g.game.minute)
@@ -249,6 +272,8 @@ export function IdCard({ staff: s, shifts = [], selected, dimmed, onClick, onPoi
           </div>
         </div>
 
+        {restWarning && <RestWarning kind={restWarning} />}
+
         {/* På jobb, men med et forbehold: gradert sykmelding eller varslet permisjon */}
         {badge?.working && (
           <div className={cx('mx-2.5 mt-2 truncate rounded-md border-[1.5px] px-1.5 py-px text-center font-mono text-[9px] font-extrabold tracking-wide uppercase', BADGE_TONE[badge.tone])}>
@@ -299,6 +324,7 @@ export function MiniIdCard({
   onPointerDown,
   className,
   style,
+  restWarning,
 }: Omit<IdCardProps, 'shifts' | 'dimmed'>) {
   const prof = PROFESSIONS[s.profession]
   const rar = RARITY_STYLE[s.rarity]
@@ -338,6 +364,7 @@ export function MiniIdCard({
             <Meter value={s.energy} max={s.stamina} color={s.energy < 20 ? '#B4432F' : '#2A6453'} height={3} />
             <Meter value={s.stress} color={s.stress >= 65 ? '#B4432F' : s.stress >= 40 ? '#D97736' : '#A7AEAF'} height={3} />
           </div>
+          {restWarning && <RestWarning kind={restWarning} mini />}
         </div>
         {badge && <Stamp badge={badge} mini />}
       </div>

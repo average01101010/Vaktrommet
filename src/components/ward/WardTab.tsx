@@ -5,7 +5,7 @@ import { canRotate } from '@/engine/actions'
 import { DILEMMA_BY_ID } from '@/data/dilemmas'
 import { SYNERGY_BY_ID } from '@/data/synergies'
 import { tierProgress } from '@/engine/modifiers'
-import { dayNumber, formatClock, minutesLeftInShift, gameMinutesToRealMs, shiftProgress } from '@/engine/time'
+import { dayNumber, formatClock, minutesLeftInShift, gameMinutesToRealMs, shiftProgress, getTimeInfo, weekdayName } from '@/engine/time'
 import { cx, fmtCompact, fmtDuration, fmtInt, fmtPct } from '@/lib/format'
 import { useGame } from '@/store/gameStore'
 import { useCurrentShift, useGameState, useLiveMinute, useShiftEvaluation } from '@/store/selectors'
@@ -110,8 +110,9 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
               <span className="text-[12.5px] leading-none font-extrabold">{SHIFTS[shift].name}</span>
               <span className="font-mono text-[12.5px] leading-none font-bold text-blekk-2">{formatClock(live)}</span>
             </div>
-            <div className="rounded-full bg-papir/90 px-3 py-1.5 font-mono text-[11px] font-bold text-blekk-2 shadow-kort backdrop-blur">
-              Døgn {dayNumber(game.minute)}
+            <div className="flex items-center gap-1.5 rounded-full bg-papir/90 py-1.5 pr-3 pl-3 font-mono text-[11px] font-bold text-blekk-2 shadow-kort backdrop-blur">
+              {getTimeInfo(live).weekend && <span className="rounded-full bg-rav px-1.5 py-px font-sans text-[10px] font-extrabold text-white">Helg</span>}
+              <span className="font-sans font-extrabold text-blekk">{weekdayName(live)}</span> · Døgn {dayNumber(live)}
             </div>
           </div>
           {ev.present.length === 0 && (

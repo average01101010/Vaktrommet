@@ -14,6 +14,8 @@ import type {
 } from '@/types'
 import { canWork, capacityOf, gapsOn, VIKAR } from './absence'
 import { bedsFor, slotsFor } from './modifiers'
+import { restBreachOf, shiftsWorked } from './rest'
+import { isWeekendShift, shiftStartFor } from './time'
 import { computeDemand } from './residents'
 
 const zeroSkills = (): Record<SkillId, number> =>
@@ -31,6 +33,21 @@ export function effectiveness(s: StaffMember, shift: ShiftId): number {
 }
 
 export const wageOf = (s: StaffMember): number => WAGE_PER_HOUR[s.profession] * RARITY[s.rarity].wageMult
+
+/**
+ * Trygg helgebemanning: dag og aften er fullt bemannet (et hull teller som besatt når
+ * det er dekket), det er sykepleier på begge, og ingen på dem bryter hviletidsreglene.
+ */
+function weekendTeamSecure(state: GameState, slots: number): boolean {
+  for (const shift of ['dag', 'aften'] as ShiftId[]) {
+    const ids = state.roster[shift].slice(0, slots)
+    const covered = (id: StaffId) => gapsOn(state, shift).some((g) => g.staffId === id && (g.cover === 'vikar' || g.cover === 'overtid'))
+    if (ids.length < slots || ids.some((id) => !id || !state.staff[id] || !(canWork(state.staff[id], shift, state.minute) || covered(id)))) return false
+    if (!ids.some((id) => id && state.staff[id]?.profession === 'sykepleier' && canWork(state.staff[id], shift, state.minute))) return false
+    if (ids.some((id) => id && restBreachOf(shiftsWorked(state, id, slots)))) return false
+  }
+  return true
+}
 
 /** Hvor mange vakter i døgnet den ansatte står på. */
 export function shiftCountOf(state: GameState, id: StaffId, slots: number): number {
@@ -57,6 +74,8 @@ export function evaluateShift(
 ): ShiftEvaluation {
   const slots = slotsFor(mods)
   const beds = bedsFor(mods)
+  // Helg: vakta som går, eller neste gang denne vakta kommer.
+  const weekend = isWeekendShift(shiftStartFor(state.minute, shift))
   const residents = state.residents.length
   const scale = residents / BALANCE.baseBeds
 
@@ -116,6 +135,17 @@ export function evaluateShift(
     }
   }
 
+  // Helgetillegg
+  if (weekend) wages *= 1 + BALANCE.weekendWageBonus
+
+  // ---- Hviletid: hvem på vakta bryter AML § 10-8? ----
+  const restBreaches: ShiftEvaluation['restBreaches'] = []
+  for (const s of present) {
+    const shifts = shiftsWorked(state, s.id, slots)
+    const kind = restBreachOf(shifts)
+    if (kind) restBreaches.push({ staffId: s.id, kind, shifts })
+  }
+
   // Uten sykepleier kan bare delegerte legemiddel- og såroppgaver utføres.
   const nurseOnDuty = professions.sykepleier > 0
   const nurseFactor = nurseOnDuty
@@ -128,7 +158,10 @@ export function evaluateShift(
   supply.saarstell *= nurseFactor.saarstell
 
   // ---- Behov fra beboerne og dekning uten krysskompensasjon ----
-  const demand = demandOverride ?? computeDemand(state, shift, mods)
+  const baseDemand = demandOverride ?? computeDemand(state, shift, mods)
+  // Helgedrift: ingen kontordag eller legevisitt, men besøk og helgeuro.
+  const demand = weekend ? { ...baseDemand } : baseDemand
+  if (weekend) for (const [skill, mult] of Object.entries(BALANCE.weekendDemand) as [SkillId, number][]) demand[skill] *= mult
   let demandTotal = 0
   let covered = 0
   let supplyTotal = 0
@@ -177,6 +210,10 @@ export function evaluateShift(
     countWith: (skill, min) => team.reduce((n, s) => n + (s.skills[skill] >= min ? 1 : 0), 0),
     avgEnergy: team.length ? energySum / team.length : 0,
     avgStress: team.length ? stressSum / team.length : 0,
+    weekend,
+    weekendSecure: weekend && (shift === 'dag' || shift === 'aften') && weekendTeamSecure(state, slots),
+    restShort: restBreaches.filter((b) => b.kind === 'kort').length,
+    restDouble: restBreaches.filter((b) => b.kind === 'dobbel').length,
   }
 
   const synergies: ActiveSynergy[] = []
@@ -186,6 +223,7 @@ export function evaluateShift(
   let stressDelta = 0
   let avvikMult = 1
   let xpMult = 1
+  let trivselMult = 1
   for (const def of SYNERGIES) {
     if (!def.test(ctx)) continue
     synergies.push({ id: def.id, name: def.name, tone: def.tone, description: def.description, effect: def.effect })
@@ -195,6 +233,7 @@ export function evaluateShift(
     stressDelta += def.effect.stress ?? 0
     avvikMult *= def.effect.avvik ?? 1
     xpMult *= def.effect.xp ?? 1
+    trivselMult *= def.effect.trivselMult ?? 1
   }
   if (team.some((s) => s.trait === 'veileder')) xpMult *= 1.25
 
@@ -247,7 +286,8 @@ export function evaluateShift(
         BALANCE.trivselCriticalSaar * criticalGap.saarstell +
         trivselBonus +
         mods.trivselBonus) *
-        (thanksBoost ? 1 + BALANCE.thanksTrivselBoost : 1),
+        (thanksBoost ? 1 + BALANCE.thanksTrivselBoost : 1) *
+        trivselMult,
     ),
   )
 
@@ -257,6 +297,8 @@ export function evaluateShift(
     absent: absentIds,
     vikarer,
     overtime: overtimeIds,
+    weekend,
+    restBreaches,
     slots,
     beds,
     residents,

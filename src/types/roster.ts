@@ -46,7 +46,17 @@ export interface SynergyEffect {
   avvik?: number
   /** Multiplikator på XP. */
   xp?: number
+  /** Multiplikator på trivselsmålet (0.95 = −5 %). */
+  trivselMult?: number
 }
+
+/**
+ * Brudd på hviletid etter arbeidsmiljøloven § 10-8. Turnusen gjentas hvert døgn,
+ * så den som står på to vakter, har dem hver eneste dag.
+ * - `kort`: aften og dag – vakta slutter 23:00 og neste begynner 07:00, bare 8 t fri.
+ * - `dobbel`: natt sammen med en annen vakt – 16 t i strekk gjennom natta.
+ */
+export type RestBreach = 'kort' | 'dobbel'
 
 export interface ActiveSynergy {
   id: string
@@ -66,6 +76,10 @@ export interface ShiftEvaluation {
   vikarer: number
   /** Faste ansatte som går ekstravakt her. */
   overtime: StaffId[]
+  /** Vakta er en helgevakt (helgetillegg og helgedrift). */
+  weekend: boolean
+  /** Ansatte på vakta som bryter hviletidsreglene. */
+  restBreaches: { staffId: StaffId; kind: RestBreach; shifts: ShiftId[] }[]
   slots: number
   beds: number
   /** Antall beboere som genererer behov akkurat nå. */

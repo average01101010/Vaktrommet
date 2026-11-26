@@ -5,6 +5,8 @@ import * as actions from '@/engine/actions'
 import type { ActionResult, ProfileInput, SaveSummary } from '@/engine/actions'
 import { migrateGameState } from '@/engine/migrate'
 import { catchUp, createInitialState, STATE_VERSION } from '@/engine/simulation'
+import { modifiersFor, slotsFor } from '@/engine/modifiers'
+import { restBreachFor } from '@/engine/rest'
 import { cue, type Cue } from '@/lib/feedback'
 import { getAdProvider, getPurchaseProvider } from '@/services/monetization'
 import type {
@@ -186,6 +188,24 @@ export const useGame = create<GameStore>()(
         return result
       }
 
+      /** Sier fra med en gang når en endring i turnusen gir brudd på hviletiden (AML § 10-8). */
+      function warnRest(staffId: StaffId, ok: boolean): boolean {
+        if (!ok) return ok
+        const game = get().game
+        const s = game.staff[staffId]
+        const kind = s ? restBreachFor(game, staffId, slotsFor(modifiersFor(game))) : null
+        if (s && kind) {
+          const name = s.name.split(' ')[0]
+          get().toast(
+            kind === 'kort'
+              ? `AML § 10-8: ${name} står på aften og dag – bare 8 timer fri mellom vaktene.`
+              : `AML § 10-8: ${name} går dobbeltvakt – 16 timer i strekk gjennom natta.`,
+            'info',
+          )
+        }
+        return ok
+      }
+
       return {
         game: createInitialState(Date.now()),
         offlineReport: null,
@@ -249,8 +269,8 @@ export const useGame = create<GameStore>()(
           return restored
         },
 
-        assign: (shift, slot, staffId) => run(actions.assignStaff(get().game, shift, slot, staffId), 'card') !== null,
-        assignFirstFree: (shift, staffId) => run(actions.assignToFirstFree(get().game, shift, staffId), 'card') !== null,
+        assign: (shift, slot, staffId) => warnRest(staffId, run(actions.assignStaff(get().game, shift, slot, staffId), 'card') !== null),
+        assignFirstFree: (shift, staffId) => warnRest(staffId, run(actions.assignToFirstFree(get().game, shift, staffId), 'card') !== null),
         unassign: (shift, slot) => void run(actions.unassignSlot(get().game, shift, slot)),
         suggestShift: (shift) => {
           if (run(actions.suggestShift(get().game, shift))) get().toast('Ledige plasser er fylt med best mulig dekning.', 'good')

@@ -25,11 +25,12 @@ import type {
   WardTypeId,
 } from '@/types'
 import { postDueFollowUps, spawnDilemma } from './dilemmas'
-import { maxSkillLevelFor, modifiersFor, offlineCapHours, tierFor } from './modifiers'
+import { maxSkillLevelFor, modifiersFor, offlineCapHours, slotsFor, tierFor } from './modifiers'
 import { computeDemand, syncResidents } from './residents'
 import { pick, randInt, seedFrom } from './rng'
 import { starterStaff } from './staffFactory'
 import { hourlyAbsence } from './absence'
+import { restBreachOf, shiftsWorked } from './rest'
 import { evaluateShift } from './synergy'
 import {
   dayNumber,
@@ -315,17 +316,22 @@ function step(d: GameState, ctx: SimContext): void {
 
   // ---- Ansatte: energi, stress og erfaring ----
   const onDuty = new Set(ev.present)
+  const slots = slotsFor(mods)
   for (const id of d.staffOrder) {
     const s = d.staff[id]
+    // For lite hvile mellom vaktene (AML § 10-8) koster: mer stress på jobb, dårligere restitusjon hjemme.
+    const breach = restBreachOf(shiftsWorked(d, id, slots))
     if (onDuty.has(id)) {
       s.energy = clamp(s.energy - ev.rates.energyDrain * h, 0, s.stamina)
       let stress = ev.rates.stress
+      if (breach) stress += breach === 'dobbel' ? BALANCE.restDoubleStress : BALANCE.restShortStress
       if (s.energy < 15) stress += BALANCE.stressWhenExhausted
       if (stress > 0 && s.trait === 'seigpining') stress *= 0.8
       s.stress = clamp(s.stress + stress * h, 0, 100)
       gainXp(d, s, ev.rates.xp * h)
     } else {
-      const boost = (s.trait === 'kaffekjenner' ? 1.2 : 1) * mods.recoveryMult
+      const rested = breach === 'dobbel' ? BALANCE.restDoubleRecovery : breach === 'kort' ? BALANCE.restShortRecovery : 1
+      const boost = (s.trait === 'kaffekjenner' ? 1.2 : 1) * mods.recoveryMult * rested
       s.energy = clamp(s.energy + BALANCE.energyRecovery * boost * h, 0, s.stamina)
       s.stress = clamp(s.stress - BALANCE.stressRecovery * boost * h, 0, 100)
     }

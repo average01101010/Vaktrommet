@@ -54,7 +54,7 @@ import {
 import { generateStaff } from './staffFactory'
 import { absenceActive, canWork, isGradert, startAbsence, syncGaps } from './absence'
 import { evaluateShift, shiftCountOf, wageOf } from './synergy'
-import { dayNumber, MIN_PER_HOUR, MIN_PER_SHIFT, osloDayIndex, osloWeekKey, realMsToGameMinutes, seasonId, shiftAt } from './time'
+import { dayNumber, isWeekendShift, MIN_PER_HOUR, MIN_PER_SHIFT, osloDayIndex, osloWeekKey, realMsToGameMinutes, seasonId, shiftAt } from './time'
 
 /**
  * Alle spillerhandlinger som rene funksjoner: (state, …) → ny state eller feil.
@@ -439,13 +439,16 @@ export const gapHours = (state: GameState, gap: RosterGap): number =>
 
 const roundKr = (kr: number): number => Math.max(10, Math.round(kr / 10) * 10)
 
+/** Helgetillegg på vikar og ekstravakt når hullet er på en helgevakt. */
+const weekendMult = (gap: RosterGap): number => (isWeekendShift(gap.until - MIN_PER_SHIFT) ? 1 + BALANCE.weekendWageBonus : 1)
+
 /** Tilkallingsvikar: betales for timene som gjenstår, til vikarpris. */
 export const vikarCost = (state: GameState, gap: RosterGap): number =>
-  roundKr(WAGE_PER_HOUR.helsefagarbeider * BALANCE.vikarWageMult * gapHours(state, gap))
+  roundKr(WAGE_PER_HOUR.helsefagarbeider * BALANCE.vikarWageMult * gapHours(state, gap) * weekendMult(gap))
 
 /** Ekstravakt: overtidstillegget kommer på toppen av den vanlige timelønna. */
 export const overtimeCost = (state: GameState, gap: RosterGap, s: StaffMember): number =>
-  roundKr(wageOf(s) * BALANCE.overtimeWageBonus * gapHours(state, gap))
+  roundKr(wageOf(s) * BALANCE.overtimeWageBonus * gapHours(state, gap) * weekendMult(gap))
 
 /** Faste ansatte som kan spørres om ekstravakt: på jobb-bare, ikke allerede på vakta, ikke gradert. */
 export function overtimeCandidates(state: GameState, gap: RosterGap): StaffId[] {

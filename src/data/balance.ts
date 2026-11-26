@@ -82,6 +82,20 @@ export const BALANCE = {
   stressBaseRelief: 0.6,
   stressWhenExhausted: 3,
   stressRecovery: 2.4,
+  // ---- Helg ----
+  /** Helgetillegg på lønn for helgevakter. */
+  weekendWageBonus: 0.25,
+  /** Behovet på helgevakter: ingen kontordrift og legevisitt, men besøk og helgeuro. */
+  weekendDemand: { dokumentasjon: 0.75, miljoterapi: 1.15, deeskalering: 1.15 },
+
+  // ---- Hviletid (AML § 10-8) ----
+  /** Kort hviletid (aften → dag, 8 t fri): ekstra stress per time på vakt og dårligere restitusjon. */
+  restShortStress: 2.5,
+  restShortRecovery: 0.6,
+  /** Dobbeltvakt (16 t i strekk gjennom natta): tydeligere straff. */
+  restDoubleStress: 4,
+  restDoubleRecovery: 0.4,
+
   // ---- Fravær og permisjoner (varigheter står i data/absence.ts) ----
   /** Egenmelding vurderes én time før hver vakt, for dem som står på den. */
   egenmeldingBase: 0.012,
