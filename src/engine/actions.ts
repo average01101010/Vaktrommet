@@ -22,6 +22,7 @@ import type {
   Rarity,
   Requirement,
   Reward,
+  OnboardingStep,
   Roster,
   RosterGap,
   Settings,
@@ -145,12 +146,14 @@ export function assignStaff(state: GameState, shift: ShiftId, slot: number, staf
     // Flytt innad på vakta: bytt plass.
     row[existing] = row[slot]
     row[slot] = staffId
+    markOnboarding(d, 'filledShift')
     return rostered(d)
   }
   if (shiftCountOf(state, staffId, slots) >= BALANCE.maxShiftsPerStaff) {
     return fail(`${staff.name.split(' ')[0]} står allerede på ${BALANCE.maxShiftsPerStaff} vakter i døgnet.`)
   }
   row[slot] = staffId
+  markOnboarding(d, 'filledShift')
   return rostered(d)
 }
 
@@ -206,6 +209,7 @@ export function suggestShift(state: GameState, shift: ShiftId): ActionResult {
   if (fillShift(d, shift) === 0) {
     return fail('Ingen ledige ansatte uten vakt. Rekrutter flere, eller sett noen på dobbeltvakt.')
   }
+  markOnboarding(d, 'filledShift')
   return rostered(d)
 }
 
@@ -229,6 +233,7 @@ export function applyTemplate(state: GameState, id: string): ActionResult {
   for (const shift of SHIFT_ORDER) {
     d.roster[shift] = tpl.roster[shift].map((sid) => (sid && d.staff[sid] ? sid : null))
   }
+  markOnboarding(d, 'filledShift')
   return rostered(d)
 }
 
@@ -279,6 +284,7 @@ export function buyUpgrade(state: GameState, id: UpgradeId): ActionResult {
   // Nye senger tas i bruk med en gang.
   const admitted = syncResidents(d, modifiersFor(d)).admitted
   if (admitted.length > 0) pushEvent(d, 'beboer', `${admitted.length} nye beboere har flyttet inn i den nye fløyen.`)
+  markOnboarding(d, 'trainedOrUpgraded')
   return { ok: true, state: d }
 }
 
@@ -348,6 +354,7 @@ export function resolveDilemma(
   d.monetization.seasonPass.xp += PASS_XP.dilemma + (e.passXp ?? 0)
   d.dilemmas.active = d.dilemmas.active.filter((a) => a.uid !== uid)
   d.lifetime.dilemmasResolved++
+  markOnboarding(d, 'resolvedDilemma')
 
   // Etterspill: en utsatt sak kommer tilbake strengere, og en historiekjede går videre
   // til neste steg. Beboeren saken gjelder følger med hele veien.
@@ -419,6 +426,7 @@ export function startCourse(state: GameState, staffId: StaffId, skill: SkillId):
     startedAt: d.minute,
     endsAt: d.minute + courseDurationMin(level, mods.courseSpeedMult),
   }
+  markOnboarding(d, 'trainedOrUpgraded')
   return { ok: true, state: d }
 }
 
@@ -594,6 +602,7 @@ export function grantStudyLeave(state: GameState, staffId: StaffId): ActionResul
   const d = cloneState(state)
   d.resources.budget -= cost
   startAbsence(d, d.staff[staffId], 'studiepermisjon', BALANCE.studyLeaveDays, BALANCE.leaveNoticeHours)
+  markOnboarding(d, 'trainedOrUpgraded')
   pushEvent(d, 'fravaer', `${s.name} har fått innvilget studiepermisjon (${BALANCE.studyLeaveDays} døgn, fra i morgen).`)
   return { ok: true, state: d }
 }
@@ -780,6 +789,54 @@ export function doubleLastShift(state: GameState): ActionResult<{ reward: Reward
 export function markShiftReportSeen(state: GameState): ActionResult {
   const d = cloneState(state)
   if (d.shift.last) d.shift.last.seen = true
+  return { ok: true, state: d }
+}
+
+/** Avdelingslederen signerer vaktrapporten: resultatet er lest og kvittert. */
+export function claimShiftReport(state: GameState): ActionResult {
+  if (!state.shift.last) return fail('Den første vaktrapporten kommer når vakta er ferdig.')
+  if (state.shift.last.seen) return fail('Rapporten er allerede signert.')
+  const d = cloneState(state)
+  d.shift.last!.seen = true
+  markOnboarding(d, 'claimedReport')
+  return { ok: true, state: d }
+}
+
+// ---------------------------------------------------------------------------
+// Oppstart på vaktrommet
+// ---------------------------------------------------------------------------
+
+export const ONBOARDING_STEPS: OnboardingStep[] = ['filledShift', 'resolvedDilemma', 'trainedOrUpgraded', 'claimedReport']
+
+/** Huker av et steg i oppstartssjekklista. Muterer utkastet. */
+function markOnboarding(d: GameState, step: OnboardingStep): void {
+  d.onboarding[step] = true
+}
+
+export const onboardingProgress = (state: GameState): number => ONBOARDING_STEPS.filter((k) => state.onboarding[k]).length
+
+/** Skal sjekklista vises? */
+export const onboardingVisible = (state: GameState): boolean => !state.onboardingClaimed && !state.onboarding.dismissed
+
+/** Alle fire stegene er fullført: hent velkomstbonusen. */
+export function claimOnboardingReward(state: GameState): ActionResult<{ kaffekopper: number; budget: number }> {
+  if (state.onboardingClaimed) return fail('Velkomstbonusen er allerede hentet.')
+  if (onboardingProgress(state) < ONBOARDING_STEPS.length) return fail('Fullfør alle fire stegene først.')
+  const { kaffekopper, budget } = BALANCE.onboardingReward
+  const d = cloneState(state)
+  d.resources.kaffekopper += kaffekopper
+  d.resources.budget += budget
+  d.lifetime.budget += budget
+  d.onboardingClaimed = true
+  pushEvent(d, 'avdeling', `Første vakt som avdelingsleder er i boks: +${kaffekopper} Kaffekopper og +${budget} kr.`)
+  return { ok: true, state: d, kaffekopper, budget }
+}
+
+/** Lukker sjekklista uten å fullføre (ingen bonus). */
+export function dismissOnboarding(state: GameState): ActionResult {
+  if (state.onboardingClaimed || state.onboarding.dismissed) return fail('Sjekklista er allerede lukket.')
+  const d = cloneState(state)
+  d.onboarding.dismissed = true
   return { ok: true, state: d }
 }
 

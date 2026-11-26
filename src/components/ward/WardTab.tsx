@@ -16,7 +16,9 @@ import { Icon, type IconName } from '../ui/Icon'
 import { CorkBoard } from './CorkBoard'
 import { MorgenkaffeCard, RivalCard, ThanksPanel } from './Retention'
 import { ResidentsPanel } from './ResidentsPanel'
+import type { TabId } from '../layout/BottomNav'
 import { AvvikSheet } from './AvvikSheet'
+import { OnboardingCard, type OnboardingTarget } from './OnboardingCard'
 import { RotationSheet } from './RotationSheet'
 import type { AgentInput } from './scene/agents'
 import type { SceneNote } from './scene/layout'
@@ -39,7 +41,12 @@ const EVENT_STYLE: Record<GameEvent['kind'], { icon: IconName; tone: string }> =
   takk: { icon: 'hjerte', tone: 'text-[#C2566A] bg-[#F8E1E5]' },
 }
 
-export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
+export function WardTab({ onGoToRoster, onNavigate }: { onGoToRoster: () => void; onNavigate: (tab: TabId) => void }) {
+  // Oppstartssjekklista: en annen fane, eller et sted lenger ned på siden.
+  const goTo = (target: OnboardingTarget) => {
+    if ('tab' in target) onNavigate(target.tab)
+    else document.getElementById(target.scrollTo)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
   const game = useGameState()
   const shift = useCurrentShift()
   const ev = useShiftEvaluation(shift)
@@ -139,6 +146,8 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
           </div>
         </div>
 
+        <OnboardingCard onNavigate={goTo} className="lg:hidden" />
+
         {/* ---- Nøkkeltall ---- */}
         <div className="grid grid-cols-4 gap-2">
           <Stat icon="hjerte" label="Trivsel" value={`${Math.round(game.ward.trivsel)}`} unit="%" tone={game.ward.trivsel >= 60 ? 'good' : game.ward.trivsel >= 40 ? 'mid' : 'bad'}>
@@ -227,10 +236,12 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
       </div>
 
       <div className="min-w-0 space-y-4">
+        <OnboardingCard onNavigate={goTo} className="hidden lg:block" />
+
         <MorgenkaffeCard />
 
         {/* ---- Korktavle ---- */}
-        <div>
+        <div id="korktavla" className="scroll-mt-24">
           <SectionTitle
             right={
               game.dilemmas.active.length > 0 && (
@@ -249,7 +260,9 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
 
         <RivalCard compact />
 
-        <ShiftReportCard />
+        <div id="vaktrapport" className="scroll-mt-24">
+          <ShiftReportCard />
+        </div>
 
         {/* ---- Avdelingsnivå ---- */}
         <div className="kort p-3.5">
@@ -372,6 +385,7 @@ function Stat({
 function ShiftReportCard() {
   const last = useGame((s) => s.game.shift.last)
   const doubleLastShift = useGame((s) => s.doubleLastShift)
+  const claimShiftReport = useGame((s) => s.claimShiftReport)
   if (!last) {
     return (
       <div className="kort border-dashed p-3.5">
@@ -412,7 +426,12 @@ function ShiftReportCard() {
           ))}
         </div>
       )}
-      <div className="border-t border-blekk/[0.07] p-2.5">
+      <div className="space-y-2 border-t border-blekk/[0.07] p-2.5">
+        {!last.seen && (
+          <button className="knapp knapp-primar w-full !text-[13px]" onClick={() => claimShiftReport()}>
+            <Icon name="hake" size={14} /> Signer rapporten
+          </button>
+        )}
         {last.doubled ? (
           <div className="flex items-center justify-center gap-1.5 rounded-xl bg-skog-soft py-2 text-[12.5px] font-bold text-skog">
             <Icon name="hake" size={14} /> Utbetalingen er doblet

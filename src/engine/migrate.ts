@@ -169,6 +169,15 @@ export function migrateGameState(raw: unknown, nowMs: number): GameState {
     )
   }
 
+  // ---- v9: oppstartssjekklista er for nye spillere. Den som alt har spilt, slipper den. ----
+  if (fromVersion < 9) {
+    const experienced = d.lifetime.shiftsCompleted >= 1 || d.lifetime.dilemmasResolved >= 1 || d.prestige.rotations > 0
+    if (experienced) {
+      d.onboarding = { filledShift: true, resolvedDilemma: true, trainedOrUpgraded: true, claimedReport: true, dismissed: true }
+      d.onboardingClaimed = true
+    }
+  }
+
   // ---- v8: ulukkede avvik og pårørendesamtaler. Eldre avvik regnes som behandlet. ----
   d.ward.openAvvik = Math.max(0, Math.floor(d.ward.openAvvik))
   d.ward.nextOfKinReadyAt = Math.max(0, Math.min(d.ward.nextOfKinReadyAt, d.minute + BALANCE.meetingCooldownHours * 60))

@@ -42,6 +42,25 @@ export interface Settings {
   notifications: boolean
 }
 
+/**
+ * Oppstart på vaktrommet: fire milepæler som viser hele kjerne-loopen.
+ * Settes av handlingene selv – ingen egne veiledningssteg.
+ */
+export interface OnboardingState {
+  /** Har satt en ansatt på en vaktplass (eller fått turnusen fylt ut). */
+  filledShift: boolean
+  /** Har løst et dilemma på korktavla. */
+  resolvedDilemma: boolean
+  /** Har sendt noen på kurs eller kjøpt en oppgradering. */
+  trainedOrUpgraded: boolean
+  /** Har signert en vaktrapport. */
+  claimedReport: boolean
+  /** Spilleren lukket sjekklista uten å fullføre. */
+  dismissed: boolean
+}
+
+export type OnboardingStep = 'filledShift' | 'resolvedDilemma' | 'trainedOrUpgraded' | 'claimedReport'
+
 /** Oppdagelsesboka: hvilke synergier spilleren har funnet. */
 export interface DiscoveryState {
   synergies: string[]
@@ -133,6 +152,9 @@ export interface GameState {
   thanks: ThanksState
   streak: StreakState
   settings: Settings
+  onboarding: OnboardingState
+  /** Velkomstbonusen er hentet (eller sjekklista er hoppet over av en erfaren spiller). */
+  onboardingClaimed: boolean
   /** Hull i turnusen på inneværende og neste vakt. */
   gaps: RosterGap[]
   gapCounter: number

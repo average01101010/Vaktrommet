@@ -5,7 +5,7 @@ import type { Profession, Rarity, ShiftId } from '@/types'
  * klient og server (validering) alltid regner likt.
  */
 export const BALANCE = {
-  version: 8,
+  version: 9,
 
   // ---- Tid ----
   /** Ett reelt sekund = fire spillminutter → én vakt (8 t) varer to minutter. */
@@ -191,6 +191,9 @@ export const BALANCE = {
   inspectionMinShifts: 24,
   /** Trekk i vaktas tilsynspoeng per avvik. */
   inspectionAvvikPenalty: 4,
+
+  // ---- Oppstart på vaktrommet ----
+  onboardingReward: { kaffekopper: 10, budget: 150 },
 
   // ---- Avviksbehandling og pårørendesamtaler ----
   /** Flere ulukkede avvik enn dette gir trekk på tilsynet og i trivselsmålet. */

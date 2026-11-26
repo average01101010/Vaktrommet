@@ -79,6 +79,9 @@ interface GameStore {
   claimInspection: (index: number) => void
   doubleLastShift: () => Promise<void>
   markShiftReportSeen: () => void
+  claimShiftReport: () => boolean
+  claimOnboardingReward: () => boolean
+  dismissOnboarding: () => void
   rotateWard: (choice: { wardType: WardTypeId; keepStaff: StaffId[]; wardName?: string }) => boolean
   /** Dagens Morgenkaffe. Returnerer belønningen, eller null hvis den alt er tatt. */
   checkInMorgenkaffe: () => Reward | null
@@ -337,6 +340,13 @@ export const useGame = create<GameStore>()(
           if (run(actions.doubleLastShift(get().game))) get().toast('Vaktutbetalingen er doblet!', 'good')
         },
         markShiftReportSeen: () => void run(actions.markShiftReportSeen(get().game)),
+        claimShiftReport: () => run(actions.claimShiftReport(get().game), 'stamp') !== null,
+        claimOnboardingReward: () => {
+          const r = run(actions.claimOnboardingReward(get().game), 'fanfare')
+          if (r) get().toast(`Velkomstbonus: +${r.kaffekopper} Kaffekopper og +${r.budget} kr.`, 'info')
+          return r !== null
+        },
+        dismissOnboarding: () => void run(actions.dismissOnboarding(get().game)),
 
         checkInMorgenkaffe: () => run(actions.checkInMorgenkaffe(get().game, Date.now()), 'cup')?.reward ?? null,
         resolveAvvik: (count) => {

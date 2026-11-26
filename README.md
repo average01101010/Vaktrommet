@@ -102,6 +102,14 @@ Scenen i `src/components/ward/scene/` er et rent 2D-canvas som speiler spilltils
   Begge gir personlig stress og dårligere restitusjon, og en negativ synergi på vakta (`engine/rest.ts`).
   Turnusplanleggeren viser gule AML-varsler på ID-kortene og under vaktplanen.
 
+## Oppstart på vaktrommet
+
+Nye spillere får et kort øverst på Avdelingen med fire steg som viser hele kjerne-loopen: sette opp
+turnusen, løse et dilemma, kurs eller oppgradering, og signere vaktrapporten (`GameState.onboarding`).
+Stegene hukes av av handlingene selv, og et trykk på et steg tar spilleren dit. Når alle fire er gjort,
+gir `claimOnboardingReward` +10 Kaffekopper og +150 kr. «Hopp over» lukker kortet uten bonus. Lagringer
+fra før versjon 9 som har fullført en vakt, løst et dilemma eller rotert, får ikke sjekklista.
+
 ## Avvik og pårørende
 
 - **Ulukkede avvik:** Hvert nytt avvik (fra simuleringen eller et dilemmavalg) øker både `ward.avvik` og

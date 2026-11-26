@@ -214,7 +214,7 @@ describe('migrering og ny avdeling', () => {
     delete old.shift.current.inspectionBonus
     const m = migrateGameState(old, T0)
     expect(m.version).toBe(STATE_VERSION)
-    expect(STATE_VERSION).toBe(8)
+    expect(STATE_VERSION).toBeGreaterThanOrEqual(8)
     expect(m.ward).toMatchObject({ trivsel: 61, avvik: 23, openAvvik: 0, nextOfKinReadyAt: 0 })
     expect(m.shift.current.inspectionBonus).toBe(0)
     expect(holdNextOfKinMeeting({ ...m, resources: { ...m.resources, fagpoeng: 5000 } }).ok).toBe(true)

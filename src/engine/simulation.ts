@@ -23,6 +23,7 @@ import type {
   StreakState,
   ThanksState,
   WardTypeId,
+  OnboardingState,
 } from '@/types'
 import { postDueFollowUps, spawnDilemma } from './dilemmas'
 import { maxSkillLevelFor, modifiersFor, offlineCapHours, slotsFor, tierFor } from './modifiers'
@@ -47,7 +48,7 @@ import {
 } from './time'
 
 /** Versjon av lagringsformatet. Økes når GameState endrer form – se engine/migrate. */
-export const STATE_VERSION = 8
+export const STATE_VERSION = 9
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
 
@@ -77,6 +78,14 @@ export const emptyLifetime = (): LifetimeStats => ({
 })
 
 export const defaultSettings = (): Settings => ({ sound: true, music: true, haptics: true, notifications: false })
+
+export const defaultOnboarding = (): OnboardingState => ({
+  filledShift: false,
+  resolvedDilemma: false,
+  trainedOrUpgraded: false,
+  claimedReport: false,
+  dismissed: false,
+})
 
 export const defaultDiscoveries = (): DiscoveryState => ({ synergies: [...STARTER_SYNERGY_IDS], unseen: [] })
 
@@ -156,6 +165,8 @@ export function createInitialState(nowMs: number, seed: number = nowMs): GameSta
     thanks: defaultThanks(),
     streak: defaultStreak(),
     settings: defaultSettings(),
+    onboarding: defaultOnboarding(),
+    onboardingClaimed: false,
     gaps: [],
     gapCounter: 0,
     events: [],

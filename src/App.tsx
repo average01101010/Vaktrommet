@@ -40,7 +40,15 @@ export default function App() {
       <TopBar />
       <main className="mx-auto max-w-6xl pr-[max(1rem,env(safe-area-inset-right,0px))] pl-[max(1rem,env(safe-area-inset-left,0px))] pt-4 pb-28 sm:px-5">
         <div key={tab} className="animate-inn">
-          {tab === 'avdelingen' && <WardTab onGoToRoster={() => setTab('turnus')} />}
+          {tab === 'avdelingen' && (
+            <WardTab
+              onGoToRoster={() => setTab('turnus')}
+              onNavigate={(t) => {
+                setTab(t)
+                window.scrollTo({ top: 0 })
+              }}
+            />
+          )}
           {tab === 'turnus' && <StaffTab />}
           {tab === 'utstyr' && <UpgradesTab />}
           {tab === 'tilsyn' && <LeagueTab />}
