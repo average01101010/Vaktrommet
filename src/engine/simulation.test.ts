@@ -822,7 +822,8 @@ describe('profil og innstillinger', () => {
     expect(s.settings).toEqual(defaultSettings())
     const r = updateSettings(s, { sound: false, notifications: true, ...({ haptics: 'ja', tull: true } as object) })
     if (!r.ok) throw new Error(r.reason)
-    expect(r.state.settings).toEqual({ sound: false, haptics: true, notifications: true })
+    expect(r.state.settings).toEqual({ sound: false, music: true, haptics: true, notifications: true })
+    expect(updateSettings(s, { music: false }).ok && updateSettings(s, { music: false })).toMatchObject({ state: { settings: { music: false, sound: true } } })
     expect('tull' in r.state.settings).toBe(false)
   })
 
@@ -935,7 +936,7 @@ describe('nullstilling og gjenoppretting av kjøp', () => {
   it('nullstiller spillet, men beholder innstillinger og medlemskap', () => {
     let s = simulate(fresh(), 6 * DAY).state
     s.resources.kaffekopper = 400
-    s.settings = { sound: false, haptics: false, notifications: true }
+    s.settings = { sound: false, music: true, haptics: false, notifications: true }
     s.profile = { wardName: 'Gamle avdeling', county: 'Nordland', profession: 'assistent', onboarded: true }
     const vip = grantPurchase(s, 'vip', T0)
     if (!vip.ok) throw new Error(vip.reason)
@@ -953,7 +954,7 @@ describe('nullstilling og gjenoppretting av kjøp', () => {
     })
     expect(n.lifetime.shiftsCompleted).toBe(0)
     expect(n.prestige.rotations).toBe(0)
-    expect(n.settings).toEqual({ sound: false, haptics: false, notifications: true })
+    expect(n.settings).toEqual({ sound: false, music: true, haptics: false, notifications: true })
     expect(n.profile).toEqual({ wardName: 'Gamle avdeling', county: 'Nordland', profession: 'assistent', onboarded: false })
     expect(n.monetization.vip).toBe(true)
     expect(n.monetization.purchases).toHaveLength(1)

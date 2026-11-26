@@ -99,9 +99,17 @@ function Preferences() {
           id="innst-lyd"
           icon="lyd"
           label="Lydeffekter"
-          description="Korte, dempede lyder ved handlinger."
+          description="Korte, dempede lyder ved handlinger: kort som klikker på plass, lapper, stempel og ringesnor."
           checked={settings.sound}
           onChange={(next) => updateSettings({ sound: next })}
+        />
+        <Toggle
+          id="innst-musikk"
+          icon="lyd"
+          label="Musikk og atmosfære"
+          description="Rolig bakgrunnsmusikk som følger vakta og stemningen på avdelingen, og et lavt sus fra vaktrommet."
+          checked={settings.music}
+          onChange={(next) => updateSettings({ music: next })}
         />
         <Toggle
           id="innst-haptikk"

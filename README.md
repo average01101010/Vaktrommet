@@ -89,6 +89,20 @@ Scenen i `src/components/ward/scene/` er et rent 2D-canvas som speiler spilltils
   I utviklingsmodus kan en hendelse startes fra konsollen:
   `__vaktrommetScene.events.force('potteplante')`.
 
+## Lyd
+
+All lyd lages i sanntid med Web Audio i `src/services/sound.ts` – det finnes ingen lydfiler.
+
+- **Musikk:** En generativ ambient-synth (filtpiano, akkordteppe, stereo-ekko og romklang gjennom en
+  kompressor) som aldri gjentar seg. Skala, tempo og tetthet følger vakta (`MOODS`), klangfargen følger
+  avdelingstypen (`TIMBRES`), og en dempet basspuls kommer inn når dekningen er lav eller stresset høyt.
+- **Atmosfære:** Et lavt vaktroms-sus, og en veggklokke som tikker svakt om natta og før vaktskifte.
+- **Lydeffekter:** Papir og stempel for dilemmaer, plastklikk for ID-kort, ringesnor når en varsellampe
+  tennes, kaffekopp ved Morgenkaffe og kjøp, og en akkordfanfare for synergi, takkekort og nytt nivå.
+- **Styring:** Egne brytere for lydeffekter og for musikk og atmosfære. Lyden starter ved første
+  berøring og settes på vent når fanen skjules. `useSoundscape` holder lydbildet i takt med spillet.
+  I utviklingsmodus viser `__vaktrommetSound.debug()` tilstanden.
+
 ## Dilemmaene
 
 Banken i `src/data/dilemmas/` har 105 dilemmaer. Hele lista, med valg, effekter, faglig begrunnelse og

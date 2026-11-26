@@ -44,7 +44,7 @@ import {
 } from './time'
 
 /** Versjon av lagringsformatet. Økes når GameState endrer form – se engine/migrate. */
-export const STATE_VERSION = 5
+export const STATE_VERSION = 6
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
 
@@ -72,7 +72,7 @@ export const emptyLifetime = (): LifetimeStats => ({
   recruits: 0,
 })
 
-export const defaultSettings = (): Settings => ({ sound: true, haptics: true, notifications: false })
+export const defaultSettings = (): Settings => ({ sound: true, music: true, haptics: true, notifications: false })
 
 export const defaultDiscoveries = (): DiscoveryState => ({ synergies: [...STARTER_SYNERGY_IDS], unseen: [] })
 

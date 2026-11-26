@@ -5,7 +5,7 @@ import * as actions from '@/engine/actions'
 import type { ActionResult, ProfileInput, SaveSummary } from '@/engine/actions'
 import { migrateGameState } from '@/engine/migrate'
 import { catchUp, createInitialState, STATE_VERSION } from '@/engine/simulation'
-import { cue } from '@/lib/feedback'
+import { cue, type Cue } from '@/lib/feedback'
 import { getAdProvider, getPurchaseProvider } from '@/services/monetization'
 import type {
   AdPlacement,
@@ -170,13 +170,15 @@ export const useGame = create<GameStore>()(
   persist(
     (set, get) => {
       /** Kjører en ren handling; lagrer ny tilstand eller viser feilmelding. */
-      function run<T>(result: ActionResult<T>): (ActionResult<T> & { ok: true }) | null {
+      function run<T>(result: ActionResult<T>, sound: Cue = 'tap'): (ActionResult<T> & { ok: true }) | null {
         if (!result.ok) {
           get().toast(result.reason, 'bad')
           return null
         }
+        const before = get().game
         set({ game: result.state })
-        cue(result.state.settings, 'tap')
+        // Et nytt avdelingsnivå feires; ellers får handlingen sin egen lyd.
+        cue(result.state.settings, result.state.tier > before.tier ? 'fanfare' : sound)
         // Spillerhandlinger lagres med en gang – ikke bare ved neste faste skriving.
         flushSave()
         return result
@@ -194,11 +196,20 @@ export const useGame = create<GameStore>()(
           // Mellom hele simuleringssteg er tilstanden uendret – da rører vi ingenting.
           if (state === game) return
           set(report ? { game: state, offlineReport: report } : { game: state })
-          if (report) flushSave()
-          // Et takkekort som kommer mens man spiller, fortjener litt oppmerksomhet.
-          else if (state.thanks.total > game.thanks.total && state.thanks.cards[0]) {
+          if (report) {
+            flushSave()
+            return
+          }
+          // Det som skjer mens man spiller, får sin egen lyd: takkekort, ny synergi og nytt nivå
+          // feires, og en ny lapp på korktavla rasler i papiret.
+          const celebrate =
+            state.thanks.total > game.thanks.total || state.discoveries.synergies.length > game.discoveries.synergies.length || state.tier > game.tier
+          if (celebrate) cue(state.settings, 'fanfare')
+          else if (state.dilemmas.active.length > game.dilemmas.active.length) cue(state.settings, 'paper')
+          // Et takkekort fortjener også litt oppmerksomhet på skjermen.
+          if (state.thanks.total > game.thanks.total && state.thanks.cards[0]) {
             const from = state.thanks.cards[0].from
-            get().toast(`Takkekort fra ${from.charAt(0).toLowerCase()}${from.slice(1)}`, 'good')
+            get().toast(`Takkekort fra ${from.charAt(0).toLowerCase()}${from.slice(1)}`, 'info')
           }
         },
         dismissOfflineReport: () => set({ offlineReport: null }),
@@ -236,8 +247,8 @@ export const useGame = create<GameStore>()(
           return restored
         },
 
-        assign: (shift, slot, staffId) => run(actions.assignStaff(get().game, shift, slot, staffId)) !== null,
-        assignFirstFree: (shift, staffId) => run(actions.assignToFirstFree(get().game, shift, staffId)) !== null,
+        assign: (shift, slot, staffId) => run(actions.assignStaff(get().game, shift, slot, staffId), 'card') !== null,
+        assignFirstFree: (shift, staffId) => run(actions.assignToFirstFree(get().game, shift, staffId), 'card') !== null,
         unassign: (shift, slot) => void run(actions.unassignSlot(get().game, shift, slot)),
         suggestShift: (shift) => {
           if (run(actions.suggestShift(get().game, shift))) get().toast('Ledige plasser er fylt med best mulig dekning.', 'good')
@@ -250,9 +261,9 @@ export const useGame = create<GameStore>()(
         },
         deleteTemplate: (id) => void run(actions.deleteTemplate(get().game, id)),
 
-        buyUpgrade: (id) => run(actions.buyUpgrade(get().game, id)) !== null,
+        buyUpgrade: (id) => run(actions.buyUpgrade(get().game, id), 'cup') !== null,
 
-        resolveDilemma: (uid, optionId) => run(actions.resolveDilemma(get().game, uid, optionId))?.resolution ?? null,
+        resolveDilemma: (uid, optionId) => run(actions.resolveDilemma(get().game, uid, optionId), 'stamp')?.resolution ?? null,
 
         startCourse: (staffId, skill) => run(actions.startCourse(get().game, staffId, skill)) !== null,
         skipCourse: (staffId) => run(actions.skipCourse(get().game, staffId)) !== null,
@@ -278,7 +289,7 @@ export const useGame = create<GameStore>()(
           const receipt = await getPurchaseProvider().purchase(item)
           if (!receipt) return false
           // TODO(server): send kvitteringen til Supabase Edge Function for validering før innvilgelse.
-          const ok = run(actions.grantPurchase(get().game, itemId, Date.now())) !== null
+          const ok = run(actions.grantPurchase(get().game, itemId, Date.now()), 'cup') !== null
           if (ok) get().toast(`${item.name} er aktivert.`, 'good')
           return ok
         },
@@ -296,7 +307,7 @@ export const useGame = create<GameStore>()(
         },
         markShiftReportSeen: () => void run(actions.markShiftReportSeen(get().game)),
 
-        checkInMorgenkaffe: () => run(actions.checkInMorgenkaffe(get().game, Date.now()))?.reward ?? null,
+        checkInMorgenkaffe: () => run(actions.checkInMorgenkaffe(get().game, Date.now()), 'cup')?.reward ?? null,
         acknowledgeDiscoveries: () => {
           const game = get().game
           if (game.discoveries.unseen.length === 0) return

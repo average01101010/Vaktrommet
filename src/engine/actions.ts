@@ -630,7 +630,7 @@ export function updateProfile(state: GameState, input: ProfileInput): ActionResu
   return { ok: true, state: d }
 }
 
-const SETTING_KEYS: (keyof Settings)[] = ['sound', 'haptics', 'notifications']
+const SETTING_KEYS: (keyof Settings)[] = ['sound', 'music', 'haptics', 'notifications']
 
 export function updateSettings(state: GameState, patch: Partial<Settings>): ActionResult {
   const d = cloneState(state)

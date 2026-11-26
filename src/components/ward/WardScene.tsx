@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { SHIFT_ORDER } from '@/data/balance'
 import { liveMinute, MIN_PER_DAY, MIN_PER_SHIFT, minuteOfDay } from '@/engine/time'
+import { sound } from '@/services/sound'
 import type { UpgradeLevels, WardTypeId } from '@/types'
 import { Crew, residentCountFor, Residents, type AgentInput, type CrewContext } from './scene/agents'
 import { drawScene, type LightLayer } from './scene/draw'
@@ -89,6 +90,7 @@ export function WardScene(props: WardSceneProps) {
     let crewKey = ''
     let first = true
     let firstResidents = true
+    let ringingBefore = 0
     let visible = true
     let doors: DoorSlot[] = []
 
@@ -144,6 +146,10 @@ export function WardScene(props: WardSceneProps) {
       }
       const step = reduced ? dt * 0.6 : dt
       crew.update(step, context, time)
+      // Ringesnor: en myk klokke når en ny varsellampe tennes over en pasientdør.
+      const ringing = crew.ringing()
+      if (ringing > ringingBefore) sound.play('chime')
+      ringingBefore = ringing
       residents.update(
         step,
         {

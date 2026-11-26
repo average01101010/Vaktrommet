@@ -30,6 +30,8 @@ export interface LifetimeStats {
 export interface Settings {
   /** Lydeffekter ved handlinger. */
   sound: boolean
+  /** Bakgrunnsmusikk og vaktroms-atmosfære. */
+  music: boolean
   /** Vibrasjon på mobil. */
   haptics: boolean
   /** Varsel når offline-bufferen er full eller et kurs er ferdig. */

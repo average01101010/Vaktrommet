@@ -1,47 +1,15 @@
+import { sound, type SoundCue } from '@/services/sound'
 import type { Settings } from '@/types'
 
 /**
- * Lyd og haptikk. Begge styres av spillerens innstillinger, og begge er
- * «best effort»: mangler nettleseren støtte, skjer det ingenting.
+ * Lyd og haptikk for spillerens handlinger. Lyden lages av lydtjenesten
+ * (services/sound.ts). Begge styres av innstillingene, og begge er «best
+ * effort»: mangler nettleseren støtte, skjer det ingenting.
  */
-export type Cue = 'tap' | 'good' | 'bad'
+export type Cue = SoundCue
 
-let audio: AudioContext | null = null
-
-function tone(ctx: AudioContext, freq: number, start: number, duration: number, volume: number, type: OscillatorType): void {
-  const osc = ctx.createOscillator()
-  const gain = ctx.createGain()
-  osc.type = type
-  osc.frequency.value = freq
-  const t0 = ctx.currentTime + start
-  gain.gain.setValueAtTime(0, t0)
-  gain.gain.linearRampToValueAtTime(volume, t0 + 0.012)
-  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration)
-  osc.connect(gain).connect(ctx.destination)
-  osc.start(t0)
-  osc.stop(t0 + duration + 0.02)
-}
-
-/** Korte, dempede lydeffekter laget med Web Audio – ingen lydfiler å laste. */
-function playSound(cue: Cue): void {
-  try {
-    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (!Ctor) return
-    audio ??= new Ctor()
-    if (audio.state === 'suspended') void audio.resume()
-    if (cue === 'tap') tone(audio, 620, 0, 0.07, 0.035, 'sine')
-    else if (cue === 'good') {
-      tone(audio, 660, 0, 0.12, 0.05, 'sine')
-      tone(audio, 880, 0.09, 0.18, 0.05, 'sine')
-    } else {
-      tone(audio, 196, 0, 0.2, 0.06, 'triangle')
-    }
-  } catch {
-    // Lyd er pynt – aldri la det stoppe spillet.
-  }
-}
-
-const VIBRATION: Record<Cue, number | number[]> = { tap: 8, good: [10, 40, 14], bad: [24, 50, 24] }
+/** Vibrasjonsmønster for de lydene som også skal kjennes. */
+const VIBRATION: Partial<Record<Cue, number | number[]>> = { tap: 8, good: [10, 40, 14], bad: [24, 50, 24], card: 10, stamp: [14, 30, 10], cup: 8, fanfare: [10, 40, 14, 40, 20] }
 
 export function haptic(settings: Pick<Settings, 'haptics'>, pattern: number | number[] = 8): void {
   if (!settings.haptics) return
@@ -54,6 +22,8 @@ export function haptic(settings: Pick<Settings, 'haptics'>, pattern: number | nu
 
 /** Gir lyd og/eller vibrasjon for en hendelse, etter innstillingene. */
 export function cue(settings: Settings, kind: Cue): void {
-  if (settings.sound) playSound(kind)
-  haptic(settings, VIBRATION[kind])
+  sound.setSettings(settings)
+  sound.play(kind)
+  const pattern = VIBRATION[kind]
+  if (pattern !== undefined) haptic(settings, pattern)
 }

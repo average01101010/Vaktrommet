@@ -157,6 +157,10 @@ export function migrateGameState(raw: unknown, nowMs: number): GameState {
     )
   }
 
+  // ---- Innstillinger: musikkbryteren er ny (v6) og arver valget spilleren hadde for lyd ----
+  const savedSettings = isObject(raw.settings) ? raw.settings : {}
+  if (typeof savedSettings.music !== 'boolean') d.settings.music = d.settings.sound
+
   // ---- Lapper som handler om en beboer, må vite hvem ----
   // Eldre lagringer hadde navnet skrevet rett i teksten; nå settes en av dagens beboere inn.
   const validSubject = (v: unknown): v is DilemmaSubject =>

@@ -5,7 +5,7 @@ import type { Profession, Rarity, ShiftId } from '@/types'
  * klient og server (validering) alltid regner likt.
  */
 export const BALANCE = {
-  version: 5,
+  version: 6,
 
   // ---- Tid ----
   /** Ett reelt sekund = fire spillminutter → én vakt (8 t) varer to minutter. */

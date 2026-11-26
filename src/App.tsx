@@ -13,9 +13,11 @@ import { inspectionQualified, streakStatus, upgradeStatus } from '@/engine/actio
 import { inspectionAverage } from '@/engine/simulation'
 import { useGame } from '@/store/gameStore'
 import { useGameLoop } from '@/store/useGameLoop'
+import { useSoundscape } from '@/store/useSoundscape'
 
 export default function App() {
   useGameLoop()
+  useSoundscape()
   const [tab, setTab] = useState<TabId>('avdelingen')
   const game = useGame((s) => s.game)
   const offlineOpen = useGame((s) => s.offlineReport !== null)
