@@ -11,6 +11,10 @@ export interface WardState {
   trivsel: number
   /** Totalt antall registrerte avvik. */
   avvik: number
+  /** Avvik som er meldt, men ikke behandlet og lukket ennå. */
+  openAvvik: number
+  /** Spillminuttet neste pårørendesamtale kan holdes (nedkjøling). */
+  nextOfKinReadyAt: number
   /** Brøkdel av neste avvik (akkumulator). */
   avvikProgress: number
   /** Løpenummer for innkomster (gir beboer-id). */
@@ -80,7 +84,7 @@ export interface GameEvent {
   id: number
   /** Spillminutt. */
   at: number
-  kind: 'syk' | 'frisk' | 'kurs' | 'nivaa' | 'avdeling' | 'beboer' | 'oppdagelse' | 'takk' | 'fravaer' | 'vikar'
+  kind: 'syk' | 'frisk' | 'kurs' | 'nivaa' | 'avdeling' | 'beboer' | 'oppdagelse' | 'takk' | 'fravaer' | 'vikar' | 'avvik' | 'paaroerende'
   text: string
 }
 

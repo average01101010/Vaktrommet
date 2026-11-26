@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { BALANCE, SHIFTS, TIERS } from '@/data/balance'
 import { WARD_TYPE_ORDER, WARD_TYPES } from '@/data/wards'
-import { canRotate } from '@/engine/actions'
+import { avvikCloseCost, canRotate } from '@/engine/actions'
+import { avvikCheckStatus } from '@/engine/avvik'
 import { DILEMMA_BY_ID } from '@/data/dilemmas'
 import { SYNERGY_BY_ID } from '@/data/synergies'
 import { tierProgress } from '@/engine/modifiers'
@@ -15,6 +16,7 @@ import { Icon, type IconName } from '../ui/Icon'
 import { CorkBoard } from './CorkBoard'
 import { MorgenkaffeCard, RivalCard, ThanksPanel } from './Retention'
 import { ResidentsPanel } from './ResidentsPanel'
+import { AvvikSheet } from './AvvikSheet'
 import { RotationSheet } from './RotationSheet'
 import type { AgentInput } from './scene/agents'
 import type { SceneNote } from './scene/layout'
@@ -26,6 +28,8 @@ const EVENT_STYLE: Record<GameEvent['kind'], { icon: IconName; tone: string }> =
   syk: { icon: 'puls', tone: 'text-fare bg-fare-soft' },
   fravaer: { icon: 'klokke', tone: 'text-rav-2 bg-rav-soft' },
   vikar: { icon: 'bruker', tone: 'text-petrol bg-petrol-soft' },
+  avvik: { icon: 'hake', tone: 'text-skog bg-skog-soft' },
+  paaroerende: { icon: 'folk', tone: 'text-petrol bg-petrol-soft' },
   frisk: { icon: 'hake', tone: 'text-skog bg-skog-soft' },
   kurs: { icon: 'kurs', tone: 'text-petrol bg-petrol-soft' },
   nivaa: { icon: 'stjerner', tone: 'text-rav-2 bg-rav-soft' },
@@ -42,6 +46,9 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
   const tp = tierProgress(game)
   const live = useLiveMinute()
   const [showRotation, setShowRotation] = useState(false)
+  const [showAvvik, setShowAvvik] = useState(false)
+  const openStatus = avvikCheckStatus(game.ward.openAvvik)
+  const closeCost = avvikCloseCost(game)
   const fagboker = WARD_TYPE_ORDER.filter((id) => (game.prestige.fagboker[id] ?? 0) > 0)
 
   const crew: AgentInput[] = useMemo(
@@ -143,9 +150,28 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
           <Stat icon="puls" label="Stress" value={`${Math.round(avgStress)}`} tone={avgStress >= 65 ? 'bad' : avgStress >= 40 ? 'mid' : 'good'}>
             <Meter value={avgStress} color={avgStress >= 65 ? '#B4432F' : '#D97736'} height={4} />
           </Stat>
-          <Stat icon="avvik" label="Avvik" value={fmtCompact(game.ward.avvik)} tone={ev.rates.avvik * 24 > 3 ? 'bad' : ev.rates.avvik * 24 > 1 ? 'mid' : 'good'}>
-            <div className="font-mono text-[9.5px] font-semibold text-blekk-3">
-              {(ev.rates.avvik * 24).toFixed(1).replace('.', ',')}/døgn
+          <Stat
+            icon="avvik"
+            label="Avvik"
+            value={String(game.ward.openAvvik)}
+            tone={openStatus === 'ok' ? 'good' : openStatus === 'advarsel' ? 'mid' : 'bad'}
+            onClick={() => setShowAvvik(true)}
+            ariaLabel={`${game.ward.openAvvik} ulukkede avvik. Lukk avvik eller hold pårørendesamtale`}
+          >
+            <div className="truncate text-[9.5px] leading-tight font-bold text-blekk-3">ulukkede</div>
+            <div
+              className={cx(
+                'mt-1 flex items-center justify-center gap-0.5 truncate rounded-md px-1 py-[3px] text-[9.5px] leading-none font-extrabold',
+                game.ward.openAvvik > 0 ? 'bg-skog text-krem' : 'bg-blekk/[0.06] text-blekk-3',
+              )}
+            >
+              {game.ward.openAvvik > 0 ? (
+                <>
+                  Lukk <span className="font-mono opacity-80">{fmtInt(closeCost)}</span>
+                </>
+              ) : (
+                'Pårørende'
+              )}
             </div>
           </Stat>
         </div>
@@ -274,7 +300,8 @@ export function WardTab({ onGoToRoster }: { onGoToRoster: () => void }) {
             </button>
           )}
         </div>
-        <RotationSheet open={showRotation} onClose={() => setShowRotation(false)} />
+        <AvvikSheet open={showAvvik} onClose={() => setShowAvvik(false)} />
+      <RotationSheet open={showRotation} onClose={() => setShowRotation(false)} />
 
         {/* ---- Logg ---- */}
         {game.events.length > 0 && (
@@ -307,6 +334,8 @@ function Stat({
   unit,
   tone,
   children,
+  onClick,
+  ariaLabel,
 }: {
   icon: IconName
   label: string
@@ -314,10 +343,18 @@ function Stat({
   unit?: string
   tone: 'good' | 'mid' | 'bad'
   children?: React.ReactNode
+  /** Gjør kortet klikkbart (åpner et handlingsark). */
+  onClick?: () => void
+  ariaLabel?: string
 }) {
   const color = tone === 'good' ? 'text-skog' : tone === 'mid' ? 'text-rav-2' : 'text-fare'
+  const Tag = onClick ? 'button' : 'div'
   return (
-    <div className="kort px-2.5 py-2.5">
+    <Tag
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className={cx('kort min-w-0 px-2.5 py-2.5 text-left', onClick && 'transition-transform hover:-translate-y-0.5 active:translate-y-0')}
+    >
       <div className="flex items-center gap-1 text-blekk-3">
         <Icon name={icon} size={12} className="hidden shrink-0 min-[400px]:block" />
         <span className="truncate text-[9px] font-bold tracking-wide uppercase">{label}</span>
@@ -327,7 +364,7 @@ function Stat({
         {unit && <span className="text-[11px] font-semibold opacity-70">{unit}</span>}
       </div>
       <div className="mt-1">{children}</div>
-    </div>
+    </Tag>
   )
 }
 

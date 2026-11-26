@@ -13,6 +13,7 @@ import type {
   StaffMember,
 } from '@/types'
 import { canWork, capacityOf, gapsOn, VIKAR } from './absence'
+import { openAvvikTrivselPenalty } from './avvik'
 import { bedsFor, slotsFor } from './modifiers'
 import { restBreachOf, shiftsWorked } from './rest'
 import { isWeekendShift, shiftStartFor } from './time'
@@ -285,7 +286,8 @@ export function evaluateShift(
         BALANCE.trivselCriticalMed * criticalGap.medikament -
         BALANCE.trivselCriticalSaar * criticalGap.saarstell +
         trivselBonus +
-        mods.trivselBonus) *
+        mods.trivselBonus -
+        openAvvikTrivselPenalty(state.ward.openAvvik)) *
         (thanksBoost ? 1 + BALANCE.thanksTrivselBoost : 1) *
         trivselMult,
     ),

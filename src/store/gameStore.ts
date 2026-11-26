@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist, type PersistStorage } from 'zustand/middleware'
+import { BALANCE } from '@/data/balance'
 import { SHOP_BY_ID } from '@/data/economy'
 import * as actions from '@/engine/actions'
 import type { ActionResult, ProfileInput, SaveSummary } from '@/engine/actions'
@@ -81,6 +82,8 @@ interface GameStore {
   rotateWard: (choice: { wardType: WardTypeId; keepStaff: StaffId[]; wardName?: string }) => boolean
   /** Dagens Morgenkaffe. Returnerer belønningen, eller null hvis den alt er tatt. */
   checkInMorgenkaffe: () => Reward | null
+  resolveAvvik: (count: number | 'alle') => boolean
+  holdNextOfKinMeeting: () => boolean
   acknowledgeDiscoveries: () => void
 
   watchAd: (placement: AdPlacement) => Promise<boolean>
@@ -336,6 +339,16 @@ export const useGame = create<GameStore>()(
         markShiftReportSeen: () => void run(actions.markShiftReportSeen(get().game)),
 
         checkInMorgenkaffe: () => run(actions.checkInMorgenkaffe(get().game, Date.now()), 'cup')?.reward ?? null,
+        resolveAvvik: (count) => {
+          const r = run(actions.resolveAvvik(get().game, count), 'stamp')
+          if (r) get().toast(r.closed === 1 ? 'Avviket er behandlet og lukket.' : `${r.closed} avvik er behandlet og lukket.`, 'info')
+          return r !== null
+        },
+        holdNextOfKinMeeting: () => {
+          const r = run(actions.holdNextOfKinMeeting(get().game), 'good')
+          if (r) get().toast(r.inspectionBonus > 0 ? `Pårørendesamtale holdt: +${BALANCE.meetingTrivsel} trivsel og tilsynspoeng.` : `Pårørendesamtale holdt: +${BALANCE.meetingTrivsel} trivsel.`, 'info')
+          return r !== null
+        },
         acknowledgeDiscoveries: () => {
           const game = get().game
           if (game.discoveries.unseen.length === 0) return

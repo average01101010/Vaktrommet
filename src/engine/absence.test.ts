@@ -262,7 +262,7 @@ describe('hull i turnusen', () => {
     expect(covered.supply.grunnstell).toBeGreaterThan(open.supply.grunnstell)
     // Lønna er betalt ved tilkalling, ikke en gang til per time.
     expect(covered.rates.wages).toBe(open.rates.wages)
-    expect(r.state.events.at(-1)).toMatchObject({ kind: 'vikar' })
+    expect(r.state.events[0]).toMatchObject({ kind: 'vikar' })
 
     expect(resolveGap(r.state, gap.id, { cover: 'vikar' }).ok).toBe(false)
     expect(resolveGap({ ...s, resources: { ...s.resources, budget: cost - 10 } }, gap.id, { cover: 'vikar' }).ok).toBe(false)

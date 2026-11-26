@@ -5,7 +5,7 @@ import type { Profession, Rarity, ShiftId } from '@/types'
  * klient og server (validering) alltid regner likt.
  */
 export const BALANCE = {
-  version: 7,
+  version: 8,
 
   // ---- Tid ----
   /** Ett reelt sekund = fire spillminutter → én vakt (8 t) varer to minutter. */
@@ -191,6 +191,35 @@ export const BALANCE = {
   inspectionMinShifts: 24,
   /** Trekk i vaktas tilsynspoeng per avvik. */
   inspectionAvvikPenalty: 4,
+
+  // ---- Avviksbehandling og pårørendesamtaler ----
+  /** Flere ulukkede avvik enn dette gir trekk på tilsynet og i trivselsmålet. */
+  openAvvikThreshold: 5,
+  /** Tilsynspoeng per ulukket avvik over terskelen, og største trekk per vakt. */
+  openAvvikInspectionPenalty: 2.5,
+  openAvvikInspectionMax: 25,
+  /** Trivselspoeng per ulukket avvik over terskelen, og største trekk. */
+  openAvvikTrivselPer: 0.6,
+  openAvvikTrivselMax: 6,
+  /** Ulukkede avvik regnes som «under kontroll» på tilsynets sjekkliste opp til dette. */
+  openAvvikOk: 2,
+  /** Fagpoeng for å behandle og lukke ett avvik (skaleres med avdelingsnivå). */
+  avvikCloseCost: 15,
+  /** Rabatt per nivå av Stille rapport, og med noen på vakt som har Dok. 3+. */
+  avvikCloseDiscountPerStille: 0.08,
+  avvikCloseDokDiscount: 0.25,
+  avvikCloseDokMin: 3,
+  /** Tilsynspoeng vakta får per lukket avvik, og største bonus per vakt (avvik og samtaler til sammen). */
+  avvikCloseInspectionBonus: 3,
+  inspectionBonusMax: 20,
+  /** Pårørendesamtale: pris i Fagpoeng (skaleres med nivå), stress på vakta, trivselsløft og tilsynsbonus. */
+  meetingCost: 40,
+  meetingStress: 6,
+  meetingTrivsel: 6,
+  meetingInspectionBonus: 8,
+  /** Tilsynsbonusen gis bare når trivselen har falt under dette. */
+  meetingTrivselLimit: 80,
+  meetingCooldownHours: 24,
 
   // ---- Avdelingsrotasjon ----
   rotationUnlockTier: 5,

@@ -4,6 +4,7 @@ import { PASS_XP_PER_LEVEL, SEASON_PASS_LEVELS, SHOP_ITEMS } from '@/data/econom
 import { COUNTIES, PLAYER_PROFESSION_ORDER, PLAYER_PROFESSIONS } from '@/data/league'
 import { SKILLS } from '@/data/professions'
 import { incomeRates, inspectionQualified, passLevel, resolveReward } from '@/engine/actions'
+import { avvikCheckStatus, openAvvikInspectionPenalty } from '@/engine/avvik'
 import { driftScore, qualityIndex } from '@/engine/scoring'
 import { inspectionAverage, inspectionFor } from '@/engine/simulation'
 import { isoWeekNumber, msUntilNextSeason, msUntilNextWeek } from '@/engine/time'
@@ -17,6 +18,9 @@ import { Amount, Chip, Meter, SectionTitle, Segmented } from '../ui/bits'
 import { Icon } from '../ui/Icon'
 import { RewardLine } from '../ui/RewardLine'
 import { RivalCard } from '../ward/Retention'
+
+/** Sjekkpunktet som gjelder hver uke, uansett tema. */
+const AVVIK_CHECK = 'Avvik meldes og lukkes'
 
 type View = 'tilsyn' | 'toppliste' | 'butikk' | 'pass'
 
@@ -67,6 +71,7 @@ function InspectionPanel() {
   const shifts = game.inspection.shifts
   const qualified = inspectionQualified(game)
   const focusNow = insp.focus.reduce((n, id) => n + ev.coverageBySkill[id], 0) / insp.focus.length
+  const avvikStatus = avvikCheckStatus(game.ward.openAvvik)
   const last = game.shift.last
 
   return (
@@ -165,7 +170,7 @@ function InspectionPanel() {
       <div className="kort p-4">
         <div className="etikett">Tilsynet ser etter</div>
         <ul className="mt-2 space-y-1.5">
-          {insp.checklist.map((c) => (
+          {insp.checklist.filter((c) => c !== AVVIK_CHECK).map((c) => (
             <li key={c} className="flex items-start gap-2 text-[13px] font-semibold text-blekk-2">
               <span className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border border-blekk/25 bg-papir text-skog">
                 {focusNow >= 0.9 && <Icon name="hake" size={11} strokeWidth={3} />}
@@ -173,9 +178,38 @@ function InspectionPanel() {
               {c}
             </li>
           ))}
+          {/* Gjelder hver uke: ulukkede avvik trekker uansett tema */}
+          <li
+            className={cx(
+              'flex items-start gap-2 rounded-lg px-2 py-1.5 text-[13px] font-semibold',
+              avvikStatus === 'ok' ? 'bg-skog-soft/70 text-skog' : avvikStatus === 'advarsel' ? 'bg-rav-soft text-rav-2' : 'bg-fare-soft text-fare',
+            )}
+            data-avvik-status={avvikStatus}
+          >
+            <span
+              className={cx(
+                'mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border-[1.5px]',
+                avvikStatus === 'ok' ? 'border-skog bg-skog text-white' : avvikStatus === 'advarsel' ? 'border-rav-2 bg-papir' : 'border-fare bg-papir',
+              )}
+            >
+              <Icon name={avvikStatus === 'ok' ? 'hake' : 'avvik'} size={11} strokeWidth={3} />
+            </span>
+            <span className="min-w-0 flex-1">
+              {AVVIK_CHECK}
+              <span className="block text-[11.5px] font-bold opacity-85">
+                {game.ward.openAvvik} ulukkede
+                {avvikStatus === 'ok'
+                  ? ' – i orden'
+                  : avvikStatus === 'advarsel'
+                    ? ` – lukk dem før det blir flere enn ${BALANCE.openAvvikThreshold}`
+                    : ` – trekker ${openAvvikInspectionPenalty(game.ward.openAvvik).toFixed(1).replace('.', ',')} poeng per vakt`}
+              </span>
+            </span>
+          </li>
         </ul>
         <p className="mt-3 text-[12px] leading-snug text-blekk-3">
-          Hver fullførte vakt får 0–100 poeng: dekningen på fokusområdene, minus {BALANCE.inspectionAvvikPenalty} per avvik.
+          Hver fullførte vakt får 0–100 poeng: dekningen på fokusområdene, minus {BALANCE.inspectionAvvikPenalty} per nytt avvik og et trekk
+          når flere enn {BALANCE.openAvvikThreshold} avvik står ulukket. Lukkede avvik og pårørendesamtaler gir bonuspoeng.
           Resultatet er snittet. Flere vakter – fra tidshopp eller lengre offline-buffer – gir derfor ikke høyere resultat.
         </p>
       </div>

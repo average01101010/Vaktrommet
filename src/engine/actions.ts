@@ -327,7 +327,15 @@ export function resolveDilemma(
   }
   if (e.kaffekopper) d.resources.kaffekopper = Math.max(0, d.resources.kaffekopper + e.kaffekopper)
   if (e.trivsel) d.ward.trivsel = Math.max(0, Math.min(100, d.ward.trivsel + e.trivsel))
-  if (e.avvik) d.ward.avvik = Math.max(0, d.ward.avvik + e.avvik)
+  if (e.avvik) {
+    // Et nytt avvik meldes og venter på behandling; et negativt tall er et avvik som lukkes.
+    if (e.avvik > 0) {
+      d.ward.avvik += e.avvik
+      d.ward.openAvvik += e.avvik
+    } else {
+      d.ward.openAvvik = Math.max(0, d.ward.openAvvik + e.avvik)
+    }
+  }
   if (e.stress || e.energy) {
     const ev = evaluateShift(d, shiftAt(d.minute), modifiersFor(d))
     const targets = e.scope === 'paaVakt' ? ev.present : d.staffOrder
@@ -427,6 +435,81 @@ export function skipCourse(state: GameState, staffId: StaffId): ActionResult {
   ds.course = null
   pushEvent(d, 'kurs', `${ds.name} fullførte hurtigkurs.`)
   return { ok: true, state: d }
+}
+
+// ---------------------------------------------------------------------------
+// Avviksbehandling og pårørendesamtaler
+// ---------------------------------------------------------------------------
+
+const scaleFagpoeng = (state: GameState, base: number): number => Math.round(base * (1 + state.tier * BALANCE.dilemmaFagpoengTierScale))
+
+/** Fagpoeng for å lukke ett avvik: billigere med Stille rapport og med noen på vakt som kan dokumentasjon. */
+export function avvikCloseCost(state: GameState): number {
+  const stille = state.upgrades.stillerapport ?? 0
+  const ev = evaluateShift(state, shiftAt(state.minute), modifiersFor(state))
+  const dok = ev.present.some((id) => (state.staff[id]?.skills.dokumentasjon ?? 0) >= BALANCE.avvikCloseDokMin)
+  const discount = (1 - BALANCE.avvikCloseDiscountPerStille * stille) * (dok ? 1 - BALANCE.avvikCloseDokDiscount : 1)
+  return Math.max(1, Math.round(scaleFagpoeng(state, BALANCE.avvikCloseCost) * discount))
+}
+
+const CLOSE_RECEIPTS = [
+  'lukket etter gjennomgang av rutiner',
+  'lukket – årsaken er funnet, og tiltaket er lagt inn i prosedyren',
+  'lukket etter samtale med de involverte og oppdatert sjekkliste',
+  'lukket og tatt opp på personalmøtet til læring',
+]
+
+/** Behandler og lukker ulukkede avvik. `count` er antallet, eller 'alle'. */
+export function resolveAvvik(state: GameState, count: number | 'alle' = 1): ActionResult<{ closed: number; cost: number }> {
+  const open = state.ward.openAvvik
+  if (open <= 0) return fail('Ingen ulukkede avvik å behandle.')
+  const n = count === 'alle' ? open : Math.floor(count)
+  if (n < 1) return fail('Velg minst ett avvik.')
+  if (n > open) return fail(`Det er bare ${open} ulukkede avvik.`)
+  const cost = avvikCloseCost(state) * n
+  if (state.resources.fagpoeng < cost) return fail('Ikke nok Fagpoeng til å behandle avvikene.')
+  const d = cloneState(state)
+  d.resources.fagpoeng -= cost
+  d.ward.openAvvik -= n
+  d.ward.trivsel = Math.min(100, d.ward.trivsel + n)
+  d.shift.current.inspectionBonus += n * BALANCE.avvikCloseInspectionBonus
+  const receipt = CLOSE_RECEIPTS[d.eventCounter % CLOSE_RECEIPTS.length]
+  pushEvent(d, 'avvik', n === 1 ? `Avvik ${receipt}.` : `${n} avvik ${receipt}.`)
+  return { ok: true, state: d, closed: n, cost }
+}
+
+/** Fagpoeng en pårørendesamtale koster. */
+export const meetingCost = (state: GameState): number => scaleFagpoeng(state, BALANCE.meetingCost)
+
+/** Spillminutter til neste pårørendesamtale kan holdes (0 = klar nå). */
+export const meetingCooldown = (state: GameState): number => Math.max(0, state.ward.nextOfKinReadyAt - state.minute)
+
+/**
+ * Pårørendesamtale eller informasjonsmøte: lederen setter av tid. Koster Fagpoeng og
+ * litt stress på vakta, men løfter trivselen – og gir tilsynspoeng når trivselen har falt.
+ */
+export function holdNextOfKinMeeting(state: GameState): ActionResult<{ inspectionBonus: number }> {
+  const wait = meetingCooldown(state)
+  if (wait > 0) return fail(`Neste pårørendesamtale kan holdes om ${Math.ceil(wait / MIN_PER_HOUR)} spilltimer.`)
+  const cost = meetingCost(state)
+  if (state.resources.fagpoeng < cost) return fail('Ikke nok Fagpoeng til å sette av tid.')
+  const d = cloneState(state)
+  d.resources.fagpoeng -= cost
+  const ev = evaluateShift(d, shiftAt(d.minute), modifiersFor(d))
+  for (const id of ev.present) d.staff[id].stress = Math.min(100, d.staff[id].stress + BALANCE.meetingStress)
+  const lifted = state.ward.trivsel < BALANCE.meetingTrivselLimit
+  const inspectionBonus = lifted ? BALANCE.meetingInspectionBonus : 0
+  d.shift.current.inspectionBonus += inspectionBonus
+  d.ward.trivsel = Math.min(100, d.ward.trivsel + BALANCE.meetingTrivsel)
+  d.ward.nextOfKinReadyAt = d.minute + BALANCE.meetingCooldownHours * MIN_PER_HOUR
+  pushEvent(
+    d,
+    'paaroerende',
+    lifted
+      ? 'Pårørendesamtaler holdt: bekymringer tatt på alvor, tiltak avtalt og dokumentert.'
+      : 'Informasjonsmøte for pårørende holdt. Godt oppmøte og gode spørsmål.',
+  )
+  return { ok: true, state: d, inspectionBonus }
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,6 +1141,8 @@ export function rotateWard(state: GameState, choice: RotationChoice): ActionResu
   d.lifetime = emptyLifetime()
   d.ward.trivsel = BALANCE.start.trivsel
   d.ward.avvik = 0
+  d.ward.openAvvik = 0
+  d.ward.nextOfKinReadyAt = 0
   d.ward.avvikProgress = 0
   d.upgrades = emptyUpgradeLevels()
   d.tier = 0

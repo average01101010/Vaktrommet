@@ -30,6 +30,7 @@ import { computeDemand, syncResidents } from './residents'
 import { pick, randInt, seedFrom } from './rng'
 import { starterStaff } from './staffFactory'
 import { hourlyAbsence } from './absence'
+import { openAvvikInspectionPenalty } from './avvik'
 import { restBreachOf, shiftsWorked } from './rest'
 import { evaluateShift } from './synergy'
 import {
@@ -46,7 +47,7 @@ import {
 } from './time'
 
 /** Versjon av lagringsformatet. Økes når GameState endrer form – se engine/migrate. */
-export const STATE_VERSION = 7
+export const STATE_VERSION = 8
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
 
@@ -63,6 +64,7 @@ export const newAccumulator = (minute: number): ShiftAccumulator => ({
   focusSum: 0,
   hours: 0,
   synergyIds: [],
+  inspectionBonus: 0,
 })
 
 export const emptyLifetime = (): LifetimeStats => ({
@@ -111,7 +113,7 @@ export function createInitialState(nowMs: number, seed: number = nowMs): GameSta
       kaffekopper: BALANCE.start.kaffekopper,
     },
     lifetime: emptyLifetime(),
-    ward: { trivsel: BALANCE.start.trivsel, avvik: 0, avvikProgress: 0, residentCounter: 0 },
+    ward: { trivsel: BALANCE.start.trivsel, avvik: 0, openAvvik: 0, nextOfKinReadyAt: 0, avvikProgress: 0, residentCounter: 0 },
     wardType: 'sykehjem',
     residents: [],
     prestige: defaultPrestige(),
@@ -308,6 +310,7 @@ function step(d: GameState, ctx: SimContext): void {
   while (d.ward.avvikProgress >= 1) {
     d.ward.avvikProgress -= 1
     d.ward.avvik++
+    d.ward.openAvvik++
     acc.avvik++
     totals.avvik++
     d.ward.trivsel -= BALANCE.avvikTrivselHit
@@ -414,7 +417,15 @@ function endShift(d: GameState, totals: StepTotals): void {
   const acc = d.shift.current
   const avgCoverage = acc.hours > 0 ? acc.coverageSum / acc.hours : 0
   const focus = acc.hours > 0 ? acc.focusSum / acc.hours : 0
-  const inspectionScore = clamp(focus * 100 - acc.avvik * BALANCE.inspectionAvvikPenalty, 0, 100)
+  // Dekning på fokusområdene, minus nye avvik og ulukkede avvik – pluss aktivt arbeid med avvik og pårørende.
+  const inspectionScore = clamp(
+    focus * 100 -
+      acc.avvik * BALANCE.inspectionAvvikPenalty -
+      openAvvikInspectionPenalty(d.ward.openAvvik) +
+      Math.min(BALANCE.inspectionBonusMax, acc.inspectionBonus),
+    0,
+    100,
+  )
   d.inspection.scoreSum += inspectionScore
   d.inspection.shifts++
 

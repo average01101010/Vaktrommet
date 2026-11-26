@@ -102,6 +102,20 @@ Scenen i `src/components/ward/scene/` er et rent 2D-canvas som speiler spilltils
   Begge gir personlig stress og dårligere restitusjon, og en negativ synergi på vakta (`engine/rest.ts`).
   Turnusplanleggeren viser gule AML-varsler på ID-kortene og under vaktplanen.
 
+## Avvik og pårørende
+
+- **Ulukkede avvik:** Hvert nytt avvik (fra simuleringen eller et dilemmavalg) øker både `ward.avvik` og
+  `ward.openAvvik`. Over fem ulukkede gir trekk på Ukens tilsyn (2,5 poeng per vakt per avvik, maks 25)
+  og i trivselsmålet (0,6 per avvik, maks 6).
+- **`resolveAvvik`** lukker ett eller alle mot Fagpoeng (15 per avvik på første nivå, billigere med
+  Stille rapport og med noen på vakt som har Dok. 3+). Hvert lukket avvik gir +1 trivsel og +3 tilsynspoeng
+  på vakta.
+- **`holdNextOfKinMeeting`** (én gang per spilldøgn): koster Fagpoeng og +6 stress på vakta, gir +6
+  trivsel, og +8 tilsynspoeng når trivselen er under 80 %. Bonusene på tilsynet er til sammen maks 20 per vakt.
+- Avvikskortet på Avdelingen åpner et handlingsark for begge. På Tilsyn er sjekkpunktet «Avvik meldes og
+  lukkes» med hver uke, og er grønt, gult eller rødt etter antall ulukkede.
+- Lagringsformatet er versjon 8; eldre avvik regnes som behandlet.
+
 ## Fravær og bemanning
 
 `src/engine/absence.ts` og `src/data/absence.ts` erstatter den gamle `sickUntil` med et `absence`-objekt

@@ -169,6 +169,11 @@ export function migrateGameState(raw: unknown, nowMs: number): GameState {
     )
   }
 
+  // ---- v8: ulukkede avvik og pårørendesamtaler. Eldre avvik regnes som behandlet. ----
+  d.ward.openAvvik = Math.max(0, Math.floor(d.ward.openAvvik))
+  d.ward.nextOfKinReadyAt = Math.max(0, Math.min(d.ward.nextOfKinReadyAt, d.minute + BALANCE.meetingCooldownHours * 60))
+  d.shift.current.inspectionBonus = Math.max(0, d.shift.current.inspectionBonus)
+
   // ---- Hull i turnusen: bare gyldige, og regnet ut på nytt mot dagens turnus og fravær ----
   d.gaps = d.gaps.filter(
     (g) => isObject(g) && typeof g.id === 'number' && typeof g.slot === 'number' && typeof g.until === 'number' && typeof g.staffId === 'string' && g.staffId in d.staff,

@@ -147,4 +147,6 @@ export interface ShiftAccumulator {
   focusSum: number
   hours: number
   synergyIds: string[]
+  /** Tilsynspoeng vakta har tjent på aktivt arbeid: lukkede avvik og pårørendesamtaler. */
+  inspectionBonus: number
 }
