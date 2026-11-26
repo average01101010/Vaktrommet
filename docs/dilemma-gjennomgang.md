@@ -5,7 +5,7 @@ Hele dilemmabanken i Vaktrommet, til faglig gjennomgang. Fila er generert fra `s
 
 ## Oversikt
 
-- **105 dilemmaer** i alt: 88 kan dukke opp av seg selv, og 17 kommer bare som oppfølging eller neste steg i en kjede.
+- **110 dilemmaer** i alt: 93 kan dukke opp av seg selv, og 17 kommer bare som oppfølging eller neste steg i en kjede.
 - **7 historiekjeder** over to eller tre steg.
 - Egne situasjoner for spesialavdelingene: Skjermet demensenhet 5, Korttid og rehabilitering 6, Bofellesskap 5, Lindrende enhet 5.
 - 15 er knyttet til en bestemt vakt, og 27 krever en beboer med en bestemt klinisk profil.
@@ -19,6 +19,7 @@ Hele dilemmabanken i Vaktrommet, til faglig gjennomgang. Fila er generert fra `s
 | Spesialavdelinger | 20 |
 | Natt, dag og aften | 8 |
 | Arbeidsmiljø, ledelse og vaktromshumor | 8 |
+| Fravær, vikarer og arbeidstid | 5 |
 | Historiekjeder | 19 |
 
 ### Slik leses lista
@@ -1863,6 +1864,113 @@ Hele dilemmabanken i Vaktrommet, til faglig gjennomgang. Fila er generert fra `s
 **Faglig begrunnelse:** Gaver i form av mat er hyggelig og helt greit å ta imot, men institusjonen har ansvar for at det som serveres, er trygt. Allergener må være kjent, kremkaker må holdes kalde, og konsistensen må tilpasses dem som har svelgvansker.
 
 **Kilde:** Matinformasjonsforskriften (allergenmerking) · Mattilsynet: internkontroll for mat i institusjon
+
+## Fravær, vikarer og arbeidstid (5)
+
+### Mandag igjen
+
+`egenmelding_monster` · når noen har egenmelding
+
+> Fjerde egenmelding i år for den samme helsefagarbeideren – tre av dem på mandager etter arbeidshelg. Kollegene har begynt å himle med øynene.
+> — *Deg selv*
+
+1. **Ta en oppfølgingssamtale om arbeidshelgene** – Spør om turnusen, ikke om diagnosen
+   - Effekt: +20 Fagpoeng, −5 stress (alle), −4 energi (alle)
+   - Utfall: Tre helger på rad med sen–tidlig, viste det seg. Dere flyttet én vakt. Mandagene har hun stått på siden.
+2. **Krev legeerklæring fra første dag** *(krever Dok. 3+ på vakt)* – Krever noen med Dok. 3+
+   - Effekt: +6 stress (alle), +1 avvik
+   - Utfall: Formelt gjennomført, med varsel og drøfting. Fraværet gikk ned. Det gjorde også viljen til å ta ekstravakter.
+3. **La det ligge – hun har jo rett til det** – Ingen konflikt i dag
+   - Effekt: +4 stress (alle)
+   - Utfall: Ingen samtale, ingen endring. Nå er det kollegene som har begynt å bli borte på mandager.
+
+**Faglig begrunnelse:** Egenmelding er en rettighet, og arbeidsgiver kan ikke kreve å få vite diagnosen. Gjentatt korttidsfravær skal likevel følges opp med en samtale om hva som ligger bak – ofte er det belastning i turnusen. Retten til egenmelding kan bare tas bort etter en ryddig prosess der den ansatte har fått uttale seg.
+
+**Kilde:** Folketrygdloven §§ 8-24 og 8-27 · IA-avtalen
+
+### Vikarposten er tom
+
+`vikarbudsjett` · fra avdelingsnivå 2
+
+> Oktober, og vikarbudsjettet er brukt opp. Byrået tilbyr en fast avtale. To av dine egne står i 60 % stilling og tar ekstravakter hver eneste uke.
+> — *Enhetsleder*
+
+1. **Tilby de to deltidsansatte høyere stilling** *(krever Dok. 2+ på vakt)* – Krever noen med Dok. 2+
+   - Effekt: +26 Fagpoeng, −400 kr, +4 trivsel, −4 stress (alle), +10 pass-XP
+   - Utfall: Begge sa ja til 80 %. Færre ukjente fjes i gangen, og vikarregningen ble halvert på to måneder.
+2. **Skriv fast avtale med byrået** – Forutsigbart, men dyrt
+   - Effekt: −1100 kr, −2 trivsel
+   - Utfall: Vaktene blir dekket. Beboerne spør hver morgen hvem den nye er, og hva de heter.
+3. **Fortsett å ringe de samme på fritida** – Det har jo gått til nå
+   - Effekt: +8 stress (alle), +1 avvik
+   - Utfall: De tok telefonen i oktober. I november sluttet den ene å svare, og den andre krevde stillingen sin via fagforeningen.
+
+**Faglig begrunnelse:** Deltidsansatte har fortrinnsrett til utvidet stilling framfor nyansettelser og innleie, og den som jevnlig har jobbet utover avtalt stilling, kan ha krav på tilsvarende stillingsprosent. Fast ansatte som kjenner beboerne, gir bedre kontinuitet enn skiftende vikarer – og er som regel billigere.
+
+**Kilde:** Arbeidsmiljøloven §§ 14-3, 14-4 a og 14-12
+
+### Tolv timer overtid
+
+`overtid_grense` · snittstress minst 26
+
+> Den som alltid sier ja, har tatt tre ekstravakter på sju dager. I kveld mangler dere folk igjen, og hun står allerede med jakka på og spør om hun skal bli.
+> — *Aftenvakta*
+
+1. **Takk nei, og finn en annen løsning for kvelden** – Vikar eller omfordeling
+   - Effekt: +18 Fagpoeng, −600 kr, −3 stress (alle)
+   - Utfall: Hun så nesten lettet ut. Vikaren kostet, men ingen gikk hjem etter seksten timer på jobb.
+2. **Ring tillitsvalgt og avtal utvidet overtid** *(krever Dok. 2+ på vakt)* – Krever noen med Dok. 2+
+   - Effekt: +14 Fagpoeng, +4 stress (på vakt), −8 energi (på vakt)
+   - Utfall: Avtalen kom på plass på ti minutter, med krav om fri dagen etter. Lovlig, og akkurat så slitsomt som det høres ut.
+3. **«Supert, tusen takk!»** – Hun tilbød seg jo selv
+   - Effekt: +10 stress (på vakt), −16 energi (på vakt), +2 avvik
+   - Utfall: Klokka 21:40 ga hun kveldsmedisinen på rom 4 til beboeren på rom 5. Det er arbeidsgiver som har ansvaret for arbeidstida.
+
+**Faglig begrunnelse:** Overtid skal ikke overstige ti timer på sju dager, og den som har jobbet, har krav på elleve timers hvile før neste vakt. Grensene kan bare utvides gjennom avtale med tillitsvalgte. De finnes fordi trøtte pleiere gjør flere feil – det er pasientsikkerhet like mye som arbeidervern.
+
+**Kilde:** Arbeidsmiljøloven §§ 10-6 og 10-8
+
+### Tilbake på 50 %
+
+`gradert_tilrettelegging` · når noen har gradert sykmelding
+
+> En sykepleier er tilbake gradert etter lang sykmelding. Hun skal skånes for tunge stell. I pausen mumles det om at «noen slipper unna».
+> — *Verneombudet*
+
+1. **Lag oppfølgingsplan, og si til laget hva som er avtalt** *(krever Dok. 2+ på vakt)* – Krever noen med Dok. 2+
+   - Effekt: +26 Fagpoeng, −6 stress (alle), +10 pass-XP
+   - Utfall: Legemidler, dokumentasjon og veiledning av lærlingen – ingen forflytninger. Da alle visste det, sluttet mumlingen.
+2. **Sett henne på vanlig arbeidsliste, «så det blir rettferdig»** – Likt for alle
+   - Effekt: +8 stress (alle), +1 avvik
+   - Utfall: Etter fire dager med tunge stell var hun helt sykmeldt igjen. Rettferdig ble det ikke, bare dyrt.
+3. **Be henne vente til hun er helt frisk** – Enklere for turnusen
+   - Effekt: −500 kr, −2 trivsel, +3 stress (alle)
+   - Utfall: Hun ble hjemme. Jo lenger noen er borte, jo vanskeligere er veien tilbake – og dere hadde plikt til å prøve.
+
+**Faglig begrunnelse:** Arbeidsgiver har plikt til å tilrettelegge så langt det er mulig, og skal lage en oppfølgingsplan sammen med den ansatte innen fire uker. Gradert sykmelding virker best når oppgavene er konkrete og kollegene vet hva som er avtalt – ikke hvorfor, men hva. Uklarhet gir både tilbakefall og murring.
+
+**Kilde:** Arbeidsmiljøloven § 4-6 · Folketrygdloven §§ 8-6 og 8-7
+
+### Dag elleve
+
+`sykt_barn_kvote` · når noen har sykt barn
+
+> En alenefar på aftenvakt har brukt opp sykt barn-dagene sine. Seksåringen har feber igjen. «Jeg kan ta ham med på vaktrommet, han sitter stille med nettbrettet.»
+> — *Aftenvakta*
+
+1. **Sjekk kvoten for aleneforsørgere, og hjelp ham å bytte vakt** – Han har trolig tjue dager, ikke ti
+   - Effekt: +18 Fagpoeng, −4 stress (alle), −4 energi (alle)
+   - Utfall: Aleneforsørgere har dobbelt kvote. Han hadde ni dager igjen uten å vite det – og en kollega byttet gjerne kveldsvakta.
+2. **Innvilg ulønnet permisjon i dag** – Løser kvelden, ikke måneden
+   - Effekt: −1 trivsel, +3 stress (på vakt)
+   - Utfall: Han ble hjemme, uten lønn han egentlig hadde krav på. Ingen hadde sjekket hva reglene faktisk sa.
+3. **La ham ta med gutten på vaktrommet** – Bare denne ene gangen
+   - Effekt: −4 trivsel, +5 stress (på vakt), +2 avvik
+   - Utfall: Torsdag hadde tre beboere feber. Smittevernlegen spurte høflig hvem som hadde hatt med seg et sykt barn på jobb.
+
+**Faglig begrunnelse:** Arbeidstakere har rett til fri når barn under tolv år er syke – som hovedregel ti dager i året, flere for aleneforsørgere og ved kronisk sykdom. Er dagene brukt opp, finnes det løsninger i vaktbytte og ulønnet permisjon. Et sykt barn hører ikke hjemme på en avdeling med skrøpelige beboere.
+
+**Kilde:** Arbeidsmiljøloven § 12-9 · Folketrygdloven §§ 9-5 og 9-6
 
 ## Historiekjeder (19)
 

@@ -68,6 +68,8 @@ interface GameStore {
   recruit: (banner: BannerId) => StaffId | null
   rerollRecruit: () => Promise<StaffId | null>
   dismissStaff: (staffId: StaffId) => boolean
+  resolveGap: (gapId: number, choice: actions.GapChoice) => boolean
+  grantStudyLeave: (staffId: StaffId) => boolean
   timeSkip: (itemId: string) => boolean
   purchase: (itemId: string) => Promise<boolean>
   claimPass: (level: number, track: 'free' | 'premium') => void
@@ -276,6 +278,12 @@ export const useGame = create<GameStore>()(
           return run(actions.rerollLastRecruit(get().game))?.staffId ?? null
         },
         dismissStaff: (staffId) => run(actions.dismissStaff(get().game, staffId)) !== null,
+        resolveGap: (gapId, choice) => run(actions.resolveGap(get().game, gapId, choice), choice.cover === 'under' ? 'tap' : 'card') !== null,
+        grantStudyLeave: (staffId) => {
+          const ok = run(actions.grantStudyLeave(get().game, staffId)) !== null
+          if (ok) get().toast('Studiepermisjon innvilget. Den starter i morgen – husk turnusen.', 'good')
+          return ok
+        },
 
         timeSkip: (itemId) => {
           const r = run(actions.timeSkip(get().game, itemId))

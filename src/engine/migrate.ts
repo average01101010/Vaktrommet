@@ -1,10 +1,12 @@
 import { BALANCE, SHIFT_ORDER } from '@/data/balance'
+import { ABSENCES } from '@/data/absence'
 import { DILEMMA_BY_ID } from '@/data/dilemmas'
 import { STARTER_SYNERGY_IDS, SYNERGY_BY_ID } from '@/data/synergies'
 import { SKILL_ORDER } from '@/data/professions'
 import { emptyUpgradeLevels } from '@/data/upgrades'
 import { WARD_TYPES } from '@/data/wards'
 import type { DilemmaSubject, GameState, StaffId, StaffMember } from '@/types'
+import { syncGaps } from './absence'
 import { pickSubject, usesResident } from './dilemmas'
 import { modifiersFor } from './modifiers'
 import { syncResidents } from './residents'
@@ -44,7 +46,8 @@ const staffTemplate = (id: StaffId): StaffMember => ({
   level: 1,
   xp: 0,
   trait: null,
-  sickUntil: null,
+  absence: null,
+    strain: 0,
   course: null,
   avatar: { skin: 0, hair: 0, hairStyle: 0, accessory: 0 },
   badgeNo: '00000',
@@ -77,6 +80,15 @@ export function migrateGameState(raw: unknown, nowMs: number): GameState {
       s.id = id
       for (const skill of SKILL_ORDER) s.skills[skill] = Math.max(0, Math.min(BALANCE.skillCeiling, s.skills[skill]))
       s.energy = Math.max(0, Math.min(s.stamina, s.energy))
+      // v7: fravær er et eget objekt. En eldre sykmelding (sickUntil) føres over med riktig varighet.
+      const a = s.absence as unknown
+      const validAbsence = isObject(a) && typeof a.kind === 'string' && a.kind in ABSENCES && typeof a.startsAt === 'number' && typeof a.endsAt === 'number'
+      if (!validAbsence) s.absence = null
+      if (!s.absence && typeof value.sickUntil === 'number' && value.sickUntil > d.minute) {
+        const long = value.sickUntil - d.minute > 3 * 24 * 60
+        s.absence = { kind: long ? 'langtidssyk' : 'egenmelding', startsAt: Math.min(d.minute, value.sickUntil), endsAt: value.sickUntil }
+      }
+      s.strain = Math.max(0, Math.min(BALANCE.strainMax, s.strain))
       staff[id] = s
     }
   }
@@ -156,6 +168,12 @@ export function migrateGameState(raw: unknown, nowMs: number): GameState {
       (r) => isObject(r) && typeof r.profile === 'string' && typeof r.dischargeAt === 'number' && typeof r.room === 'number',
     )
   }
+
+  // ---- Hull i turnusen: bare gyldige, og regnet ut på nytt mot dagens turnus og fravær ----
+  d.gaps = d.gaps.filter(
+    (g) => isObject(g) && typeof g.id === 'number' && typeof g.slot === 'number' && typeof g.until === 'number' && typeof g.staffId === 'string' && g.staffId in d.staff,
+  )
+  syncGaps(d, modifiersFor(d))
 
   // ---- Innstillinger: musikkbryteren er ny (v6) og arver valget spilleren hadde for lyd ----
   const savedSettings = isObject(raw.settings) ? raw.settings : {}

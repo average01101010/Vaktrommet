@@ -11,6 +11,25 @@ export interface RosterTemplate {
   roster: Roster
 }
 
+/**
+ * Et hull i turnusen: en oppsatt ansatt er borte på en bestemt vakt. Plassen
+ * står fortsatt i den ansattes navn, så hen er tilbake på den når fraværet er
+ * over – men for denne ene vakta må lederen velge hvordan hullet løses.
+ */
+export interface RosterGap {
+  id: number
+  shift: ShiftId
+  slot: number
+  /** Den som skulle hatt vakta. */
+  staffId: StaffId
+  /** Spillminutt vakta slutter. Da er hullet historie. */
+  until: number
+  /** `open`: ikke tatt stilling til. `under`: lederen har valgt å kjøre underbemannet. */
+  cover: 'open' | 'vikar' | 'overtid' | 'under'
+  /** Den faste ansatte som tar ekstravakta (ved `overtid`). */
+  coverId?: StaffId
+}
+
 export type SynergyTone = 'bonus' | 'malus'
 
 /** Effekten av én synergi (eller ett problem) på en vakt. */
@@ -43,6 +62,10 @@ export interface ShiftEvaluation {
   /** Ansatte som faktisk er på jobb (ikke syke / på kurs). */
   present: StaffId[]
   absent: StaffId[]
+  /** Tilkallingsvikarer som dekker hull på denne vakta (ikke med i `present`). */
+  vikarer: number
+  /** Faste ansatte som går ekstravakt her. */
+  overtime: StaffId[]
   slots: number
   beds: number
   /** Antall beboere som genererer behov akkurat nå. */

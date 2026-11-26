@@ -89,6 +89,20 @@ Scenen i `src/components/ward/scene/` er et rent 2D-canvas som speiler spilltils
   I utviklingsmodus kan en hendelse startes fra konsollen:
   `__vaktrommetScene.events.force('potteplante')`.
 
+## Fravær og bemanning
+
+`src/engine/absence.ts` og `src/data/absence.ts` erstatter den gamle `sickUntil` med et `absence`-objekt
+(type, start og slutt) på hver ansatt.
+
+- **Typer:** egenmelding (1–3 døgn, meldes én time før vaktstart), sykt barn (1–2 døgn, dag og aften),
+  sykmelding (7–21 døgn etter stress over tid), gradert sykmelding (7–14 døgn, 50 % og bare dagvakt),
+  studiepermisjon (2–4 døgn, gir erfaring og Fagpoeng) og velferdspermisjon (1–3 døgn, varslet et døgn før).
+- **Hull i turnusen:** Er en oppsatt ansatt borte på vakta som går eller den neste, blir det et hull
+  (`GameState.gaps`). Plassen står i den ansattes navn; for den ene vakta velger lederen tilkallingsvikar,
+  ekstravakt til en fast ansatt (overtid) eller underbemanning (`resolveGap`).
+- **Studiepermisjon** kan innvilges fra ansattdetaljene (`grantStudyLeave`).
+- Lagringsformatet er versjon 7; eldre sykmeldinger føres over i `migrateGameState`.
+
 ## Lyd
 
 All lyd lages i sanntid med Web Audio i `src/services/sound.ts` – det finnes ingen lydfiler.

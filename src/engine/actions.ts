@@ -1,4 +1,4 @@
-import { BALANCE, INSPECTION_TIERS, RARITY, RARITY_ORDER, SHIFT_ORDER } from '@/data/balance'
+import { BALANCE, INSPECTION_TIERS, RARITY, RARITY_ORDER, SHIFT_ORDER, SHIFTS, WAGE_PER_HOUR } from '@/data/balance'
 import { COUNTIES, PLAYER_PROFESSIONS } from '@/data/league'
 import { emptyUpgradeLevels } from '@/data/upgrades'
 import { WARD_TYPES } from '@/data/wards'
@@ -23,6 +23,7 @@ import type {
   Requirement,
   Reward,
   Roster,
+  RosterGap,
   Settings,
   ShiftId,
   SkillId,
@@ -51,8 +52,9 @@ import {
   syncTier,
 } from './simulation'
 import { generateStaff } from './staffFactory'
-import { evaluateShift, isAvailable, shiftCountOf } from './synergy'
-import { dayNumber, MIN_PER_HOUR, osloDayIndex, osloWeekKey, realMsToGameMinutes, seasonId, shiftAt } from './time'
+import { absenceActive, canWork, isGradert, startAbsence, syncGaps } from './absence'
+import { evaluateShift, shiftCountOf, wageOf } from './synergy'
+import { dayNumber, MIN_PER_HOUR, MIN_PER_SHIFT, osloDayIndex, osloWeekKey, realMsToGameMinutes, seasonId, shiftAt } from './time'
 
 /**
  * Alle spillerhandlinger som rene funksjoner: (state, …) → ny state eller feil.
@@ -130,6 +132,11 @@ export function assignStaff(state: GameState, shift: ShiftId, slot: number, staf
   const staff = state.staff[staffId]
   if (!staff) return fail('Fant ikke den ansatte.')
 
+  // Gradert sykmeldte er tilrettelagt for dagvakt – ikke aften og natt.
+  if (isGradert(staff, state.minute) && shift !== 'dag') {
+    return fail(`${staff.name.split(' ')[0]} er gradert sykmeldt og kan bare gå dagvakt.`)
+  }
+
   const d = cloneState(state)
   const row = d.roster[shift]
   const existing = row.indexOf(staffId)
@@ -138,12 +145,18 @@ export function assignStaff(state: GameState, shift: ShiftId, slot: number, staf
     // Flytt innad på vakta: bytt plass.
     row[existing] = row[slot]
     row[slot] = staffId
-    return { ok: true, state: d }
+    return rostered(d)
   }
   if (shiftCountOf(state, staffId, slots) >= BALANCE.maxShiftsPerStaff) {
     return fail(`${staff.name.split(' ')[0]} står allerede på ${BALANCE.maxShiftsPerStaff} vakter i døgnet.`)
   }
   row[slot] = staffId
+  return rostered(d)
+}
+
+/** Turnusen er endret: hullene regnes ut på nytt. */
+function rostered(d: GameState): ActionResult {
+  syncGaps(d, modifiersFor(d))
   return { ok: true, state: d }
 }
 
@@ -160,7 +173,7 @@ export function assignToFirstFree(state: GameState, shift: ShiftId, staffId: Sta
 export function unassignSlot(state: GameState, shift: ShiftId, slot: number): ActionResult {
   const d = cloneState(state)
   d.roster[shift][slot] = null
-  return { ok: true, state: d }
+  return rostered(d)
 }
 
 /** Fyller ledige plasser på en vakt grådig med de som gir best dekning. Muterer utkastet. */
@@ -173,7 +186,7 @@ function fillShift(d: GameState, shift: ShiftId): number {
     let best: { id: StaffId; score: number } | null = null
     for (const id of d.staffOrder) {
       const s = d.staff[id]
-      if (!isAvailable(s) || shiftCountOf(d, id, slots) > 0) continue
+      if (!canWork(s, shift, d.minute) || shiftCountOf(d, id, slots) > 0) continue
       d.roster[shift][slot] = id
       const ev = evaluateShift(d, shift, mods)
       const bonus = ev.synergies.reduce((n, syn) => n + (syn.tone === 'bonus' ? 0.04 : -0.06), 0)
@@ -193,7 +206,7 @@ export function suggestShift(state: GameState, shift: ShiftId): ActionResult {
   if (fillShift(d, shift) === 0) {
     return fail('Ingen ledige ansatte uten vakt. Rekrutter flere, eller sett noen på dobbeltvakt.')
   }
-  return { ok: true, state: d }
+  return rostered(d)
 }
 
 // ---------------------------------------------------------------------------
@@ -216,7 +229,7 @@ export function applyTemplate(state: GameState, id: string): ActionResult {
   for (const shift of SHIFT_ORDER) {
     d.roster[shift] = tpl.roster[shift].map((sid) => (sid && d.staff[sid] ? sid : null))
   }
-  return { ok: true, state: d }
+  return rostered(d)
 }
 
 export function deleteTemplate(state: GameState, id: string): ActionResult {
@@ -380,7 +393,7 @@ export const courseSkipCost = (state: GameState, s: StaffMember): number =>
 export function startCourse(state: GameState, staffId: StaffId, skill: SkillId): ActionResult {
   const s = state.staff[staffId]
   if (!s) return fail('Fant ikke den ansatte.')
-  if (s.sickUntil !== null) return fail(`${s.name.split(' ')[0]} er sykmeldt.`)
+  if (absenceActive(s, state.minute)) return fail(`${s.name.split(' ')[0]} er borte fra jobb.`)
   if (s.course) return fail(`${s.name.split(' ')[0]} er allerede på kurs.`)
   const mods = modifiersFor(state)
   const level = s.skills[skill]
@@ -413,6 +426,89 @@ export function skipCourse(state: GameState, staffId: StaffId): ActionResult {
   ds.skills[ds.course!.skill] = Math.min(maxSkillLevelFor(ds, modifiersFor(d)), ds.skills[ds.course!.skill] + 1)
   ds.course = null
   pushEvent(d, 'kurs', `${ds.name} fullførte hurtigkurs.`)
+  return { ok: true, state: d }
+}
+
+// ---------------------------------------------------------------------------
+// Fravær: hull i turnusen og studiepermisjon
+// ---------------------------------------------------------------------------
+
+/** Timer som gjenstår av vakta hullet gjelder (hele vakta hvis den ikke har begynt). */
+export const gapHours = (state: GameState, gap: RosterGap): number =>
+  Math.max(1, Math.min(MIN_PER_SHIFT, gap.until - state.minute) / MIN_PER_HOUR)
+
+const roundKr = (kr: number): number => Math.max(10, Math.round(kr / 10) * 10)
+
+/** Tilkallingsvikar: betales for timene som gjenstår, til vikarpris. */
+export const vikarCost = (state: GameState, gap: RosterGap): number =>
+  roundKr(WAGE_PER_HOUR.helsefagarbeider * BALANCE.vikarWageMult * gapHours(state, gap))
+
+/** Ekstravakt: overtidstillegget kommer på toppen av den vanlige timelønna. */
+export const overtimeCost = (state: GameState, gap: RosterGap, s: StaffMember): number =>
+  roundKr(wageOf(s) * BALANCE.overtimeWageBonus * gapHours(state, gap))
+
+/** Faste ansatte som kan spørres om ekstravakt: på jobb-bare, ikke allerede på vakta, ikke gradert. */
+export function overtimeCandidates(state: GameState, gap: RosterGap): StaffId[] {
+  const slots = slotsFor(modifiersFor(state))
+  const onShift = new Set(state.roster[gap.shift].slice(0, slots))
+  const covering = new Set(state.gaps.filter((g) => g.cover === 'overtid').map((g) => g.coverId))
+  return state.staffOrder.filter((id) => {
+    const s = state.staff[id]
+    return canWork(s, gap.shift, state.minute) && !isGradert(s, state.minute) && !onShift.has(id) && !covering.has(id)
+  })
+}
+
+export type GapChoice = { cover: 'vikar' } | { cover: 'overtid'; staffId: StaffId } | { cover: 'under' }
+
+/** Løser et hull i turnusen for den ene vakta: vikar, ekstravakt eller bevisst underbemanning. */
+export function resolveGap(state: GameState, gapId: number, choice: GapChoice): ActionResult {
+  const gap = state.gaps.find((g) => g.id === gapId)
+  if (!gap) return fail('Vakta er allerede over.')
+  if (gap.cover === 'vikar' || gap.cover === 'overtid') return fail('Plassen er allerede dekket.')
+  const absent = state.staff[gap.staffId]
+  const d = cloneState(state)
+  const dg = d.gaps.find((g) => g.id === gapId)!
+  const shiftName = SHIFTS[gap.shift].name.toLowerCase()
+
+  if (choice.cover === 'vikar') {
+    const cost = vikarCost(state, gap)
+    if (state.resources.budget < cost) return fail('Ikke nok budsjettmidler til vikar.')
+    d.resources.budget -= cost
+    dg.cover = 'vikar'
+    pushEvent(d, 'vikar', `Tilkallingsvikar dekker ${shiftName} for ${absent?.name.split(' ')[0] ?? 'plassen'} (${cost} kr).`)
+  } else if (choice.cover === 'overtid') {
+    const s = d.staff[choice.staffId]
+    if (!s || !overtimeCandidates(state, gap).includes(choice.staffId)) return fail('Den ansatte kan ikke ta denne vakta.')
+    const cost = overtimeCost(state, gap, s)
+    if (state.resources.budget < cost) return fail('Ikke nok budsjettmidler til overtid.')
+    d.resources.budget -= cost
+    s.stress = Math.min(100, s.stress + BALANCE.overtimeStress)
+    s.energy = Math.max(0, s.energy - BALANCE.overtimeEnergy)
+    dg.cover = 'overtid'
+    dg.coverId = s.id
+    pushEvent(d, 'vikar', `${s.name.split(' ')[0]} tar ekstravakt på ${shiftName} (overtid, +${cost} kr).`)
+  } else {
+    dg.cover = 'under'
+  }
+  return { ok: true, state: d }
+}
+
+/** Det studiepermisjon koster avdelingen (vikarmidler og kursavgift). */
+export const studyLeaveCost = (state: GameState): number => BALANCE.studyLeaveCost * (1 + state.tier)
+
+/** Innvilger studiepermisjon: varslet et døgn i forveien, og den ansatte kommer tilbake med et solid erfaringsløft. */
+export function grantStudyLeave(state: GameState, staffId: StaffId): ActionResult {
+  const s = state.staff[staffId]
+  if (!s) return fail('Fant ikke den ansatte.')
+  if (s.absence) return fail(`${s.name.split(' ')[0]} har allerede fravær eller permisjon.`)
+  if (s.course) return fail(`${s.name.split(' ')[0]} er på kurs.`)
+  if (s.level >= BALANCE.maxLevel) return fail(`${s.name.split(' ')[0]} er allerede på høyeste nivå.`)
+  const cost = studyLeaveCost(state)
+  if (state.resources.budget < cost) return fail('Ikke nok budsjettmidler.')
+  const d = cloneState(state)
+  d.resources.budget -= cost
+  startAbsence(d, d.staff[staffId], 'studiepermisjon', BALANCE.studyLeaveDays, BALANCE.leaveNoticeHours)
+  pushEvent(d, 'fravaer', `${s.name} har fått innvilget studiepermisjon (${BALANCE.studyLeaveDays} døgn, fra i morgen).`)
   return { ok: true, state: d }
 }
 
@@ -967,6 +1063,7 @@ export function rotateWard(state: GameState, choice: RotationChoice): ActionResu
   d.shift.last = null
   d.dilemmas.active = []
   d.dilemmas.followUps = []
+  d.gaps = []
   d.thanks = { ...defaultThanks(), total: d.thanks.total }
   d.dilemmas.nextAt = d.minute + 4 * MIN_PER_HOUR
   d.monetization.rosterTemplates = []
@@ -978,7 +1075,8 @@ export function rotateWard(state: GameState, choice: RotationChoice): ActionResu
     const s = d.staff[id]
     s.energy = s.stamina
     s.stress = 15
-    s.sickUntil = null
+    s.absence = null
+    s.strain = 0
     s.course = null
     staff[id] = s
   }

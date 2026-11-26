@@ -1,7 +1,10 @@
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { RARITY, SHIFT_ORDER, SHIFTS } from '@/data/balance'
 import { PROFESSIONS, SKILL_ORDER, SKILLS, TRAITS } from '@/data/professions'
+import { ABSENCES } from '@/data/absence'
+import { absenceActive, absenceStatus } from '@/engine/absence'
 import { cx } from '@/lib/format'
+import { useGame } from '@/store/gameStore'
 import type { Rarity, ShiftId, SkillId, StaffMember } from '@/types'
 import { Meter } from '../ui/bits'
 import { Icon } from '../ui/Icon'
@@ -49,8 +52,11 @@ export function SkillPips({
   )
 }
 
-export function statusOf(s: StaffMember): 'syk' | 'kurs' | 'sliten' | 'stresset' | 'ok' {
-  if (s.sickUntil !== null) return 'syk'
+export type StaffStatus = 'syk' | 'borte' | 'gradert' | 'kurs' | 'sliten' | 'stresset' | 'ok'
+
+/** Den ansattes status akkurat nå. Varslet permisjon teller ikke før den har begynt. */
+export function statusOf(s: StaffMember, minute: number): StaffStatus {
+  if (absenceActive(s, minute)) return s.absence.kind === 'gradert_syk' ? 'gradert' : ABSENCES[s.absence.kind].sick ? 'syk' : 'borte'
   if (s.course) return 'kurs'
   if (s.stress >= 65) return 'stresset'
   if (s.energy < 20) return 'sliten'
@@ -74,16 +80,66 @@ function Lanyard({ color, mini = false }: { color: string; mini?: boolean }) {
   )
 }
 
-function Stamp({ status }: { status: 'syk' | 'kurs' }) {
+/** Stempelet over ID-kortet: hva slags fravær, og hvor lenge det varer. */
+interface Badge {
+  text: string
+  detail?: string
+  tone: 'fare' | 'rav' | 'petrol'
+  /** Den ansatte er på jobb likevel (gradert, eller permisjonen har ikke begynt). */
+  working: boolean
+}
+
+const BADGE_TONE: Record<Badge['tone'], string> = {
+  fare: 'border-fare bg-fare-soft/85 text-fare',
+  rav: 'border-rav-2 bg-rav-soft/90 text-rav-2',
+  petrol: 'border-petrol bg-petrol-soft/85 text-petrol',
+}
+
+const daysText = (days: number): string => (days === 1 ? '1 døgn igjen' : `${days} døgn igjen`)
+
+export function badgeFor(s: StaffMember, minute: number): Badge | null {
+  const a = absenceStatus(s, minute)
+  if (a) {
+    if (a.announced) {
+      const hours = Math.ceil(a.startsIn / 60)
+      return { text: a.stamp, detail: hours <= 24 ? 'fra i morgen' : `om ${Math.ceil(hours / 24)} døgn`, tone: 'rav', working: true }
+    }
+    if (a.kind === 'gradert_syk') return { text: a.stamp, detail: daysText(a.daysLeft), tone: 'rav', working: true }
+    return { text: a.stamp, detail: daysText(a.daysLeft), tone: ABSENCES[a.kind].sick ? 'fare' : 'petrol', working: false }
+  }
+  if (s.course) return { text: 'På kurs', tone: 'petrol', working: false }
+  return null
+}
+
+function Stamp({ badge, mini = false }: { badge: Badge; mini?: boolean }) {
+  // De som er på jobb likevel, får en liten merkelapp nederst i stedet for et stempel tvers over kortet.
+  if (badge.working) {
+    return (
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[7] flex justify-center">
+        <div
+          className={cx(
+            'max-w-full truncate rounded-t-md border-x-[1.5px] border-t-[1.5px] font-mono font-extrabold tracking-wide uppercase',
+            mini ? 'px-1 text-[7px]' : 'px-1.5 py-px text-[8.5px]',
+            BADGE_TONE[badge.tone],
+          )}
+        >
+          {badge.text}
+          {badge.detail && !mini && <span className="font-bold tracking-normal normal-case"> · {badge.detail}</span>}
+        </div>
+      </div>
+    )
+  }
   return (
-    <div className="pointer-events-none absolute inset-0 z-[7] grid place-items-center">
+    <div className={cx('pointer-events-none absolute inset-0 z-[7] grid place-items-center', mini && 'bg-papir/45')}>
       <div
         className={cx(
-          'rotate-[-14deg] rounded-md border-[2.5px] px-2 py-0.5 font-mono text-[11px] font-extrabold tracking-[0.18em] uppercase',
-          status === 'syk' ? 'border-fare bg-fare-soft/80 text-fare' : 'border-petrol bg-petrol-soft/85 text-petrol',
+          'max-w-[94%] rotate-[-12deg] rounded-md text-center font-mono font-extrabold uppercase',
+          mini ? 'border-2 px-1 text-[7.5px] leading-tight tracking-wide' : 'border-[2.5px] px-2 py-0.5 text-[10.5px] tracking-[0.14em]',
+          BADGE_TONE[badge.tone],
         )}
       >
-        {status === 'syk' ? 'Sykmeldt' : 'På kurs'}
+        {badge.text}
+        {badge.detail && <div className={cx('font-bold tracking-normal normal-case', mini ? 'text-[7px]' : 'text-[9.5px]')}>{badge.detail}</div>}
       </div>
     </div>
   )
@@ -105,7 +161,8 @@ interface IdCardProps {
 export function IdCard({ staff: s, shifts = [], selected, dimmed, onClick, onPointerDown, className, style }: IdCardProps) {
   const prof = PROFESSIONS[s.profession]
   const rar = RARITY_STYLE[s.rarity]
-  const status = statusOf(s)
+  const minute = useGame((g) => g.game.minute)
+  const badge = badgeFor(s, minute)
   const [first, ...rest] = s.name.split(' ')
   const Tag = onClick ? 'button' : 'div'
 
@@ -192,6 +249,14 @@ export function IdCard({ staff: s, shifts = [], selected, dimmed, onClick, onPoi
           </div>
         </div>
 
+        {/* På jobb, men med et forbehold: gradert sykmelding eller varslet permisjon */}
+        {badge?.working && (
+          <div className={cx('mx-2.5 mt-2 truncate rounded-md border-[1.5px] px-1.5 py-px text-center font-mono text-[9px] font-extrabold tracking-wide uppercase', BADGE_TONE[badge.tone])}>
+            {badge.text}
+            {badge.detail && <span className="font-bold tracking-normal normal-case"> · {badge.detail}</span>}
+          </div>
+        )}
+
         {/* Bunnlinje: strekkode, ansattnr. og vakter */}
         <div className="mt-2 flex items-end justify-between gap-2 px-2.5 pb-2">
           <div>
@@ -220,7 +285,7 @@ export function IdCard({ staff: s, shifts = [], selected, dimmed, onClick, onPoi
           </div>
         </div>
 
-        {(status === 'syk' || status === 'kurs') && <Stamp status={status} />}
+        {badge && !badge.working && <Stamp badge={badge} />}
       </div>
     </Tag>
   )
@@ -237,7 +302,8 @@ export function MiniIdCard({
 }: Omit<IdCardProps, 'shifts' | 'dimmed'>) {
   const prof = PROFESSIONS[s.profession]
   const rar = RARITY_STYLE[s.rarity]
-  const status = statusOf(s)
+  const minute = useGame((g) => g.game.minute)
+  const badge = badgeFor(s, minute)
   const Tag = onClick ? 'button' : 'div'
   return (
     <Tag
@@ -273,18 +339,7 @@ export function MiniIdCard({
             <Meter value={s.stress} color={s.stress >= 65 ? '#B4432F' : s.stress >= 40 ? '#D97736' : '#A7AEAF'} height={3} />
           </div>
         </div>
-        {(status === 'syk' || status === 'kurs') && (
-          <div className="pointer-events-none absolute inset-0 z-[7] grid place-items-center bg-papir/45">
-            <span
-              className={cx(
-                'rotate-[-12deg] rounded border-2 px-1 font-mono text-[8.5px] font-extrabold tracking-widest uppercase',
-                status === 'syk' ? 'border-fare bg-fare-soft text-fare' : 'border-petrol bg-petrol-soft text-petrol',
-              )}
-            >
-              {status === 'syk' ? 'Syk' : 'Kurs'}
-            </span>
-          </div>
-        )}
+        {badge && <Stamp badge={badge} mini />}
       </div>
     </Tag>
   )

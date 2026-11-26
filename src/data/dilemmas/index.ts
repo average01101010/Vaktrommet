@@ -2,6 +2,7 @@ import type { DilemmaDef } from '@/types'
 import { ARBEIDSMILJO } from './arbeidsmiljo'
 import { GRUNN } from './grunn'
 import { JUS } from './jus'
+import { FRAVAER } from './fravaer'
 import { DILEMMA_CHAINS, KJEDER } from './kjeder'
 import { KLINISK } from './klinisk'
 import { LEGEMIDLER } from './legemidler'
@@ -24,6 +25,7 @@ export const DILEMMA_GROUPS: { id: string; title: string; dilemmas: DilemmaDef[]
   { id: 'spesial', title: 'Spesialavdelinger', dilemmas: SPESIAL },
   { id: 'dognrytme', title: 'Natt, dag og aften', dilemmas: DOGNRYTME },
   { id: 'arbeidsmiljo', title: 'Arbeidsmiljø, ledelse og vaktromshumor', dilemmas: ARBEIDSMILJO },
+  { id: 'fravaer', title: 'Fravær, vikarer og arbeidstid', dilemmas: FRAVAER },
   { id: 'kjeder', title: 'Historiekjeder', dilemmas: KJEDER },
 ]
 

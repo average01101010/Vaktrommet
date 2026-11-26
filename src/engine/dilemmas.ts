@@ -2,6 +2,7 @@ import { BALANCE } from '@/data/balance'
 import { DILEMMA_BY_ID, RANDOM_DILEMMAS } from '@/data/dilemmas'
 import { RESIDENT_FEMALE_NAMES } from '@/data/residents'
 import type {
+  AbsenceKind,
   DilemmaDef,
   DilemmaSubject,
   GameState,
@@ -100,6 +101,8 @@ export interface DilemmaContext {
   /** Snittstress i hele staben (0–100). */
   avgStress: number
   trivsel: number
+  /** Fraværstypene som finnes i staben nå. */
+  absences: ReadonlySet<AbsenceKind>
 }
 
 export function dilemmaContext(state: GameState): DilemmaContext {
@@ -111,6 +114,7 @@ export function dilemmaContext(state: GameState): DilemmaContext {
     profiles: new Set(state.residents.map((r) => r.profile)),
     avgStress: staff.length ? staff.reduce((sum, s) => sum + s.stress, 0) / staff.length : 0,
     trivsel: state.ward.trivsel,
+    absences: new Set(staff.flatMap((s) => (s.absence ? [s.absence.kind] : []))),
   }
 }
 
@@ -125,6 +129,7 @@ export function matchesTriggers(def: DilemmaDef, ctx: DilemmaContext): boolean {
   if (t.residentProfile && !ctx.profiles.has(t.residentProfile)) return false
   if (t.minStress !== undefined && ctx.avgStress < t.minStress) return false
   if (t.maxTrivsel !== undefined && ctx.trivsel > t.maxTrivsel) return false
+  if (t.absence && !t.absence.some((kind) => ctx.absences.has(kind))) return false
   return true
 }
 
@@ -158,7 +163,7 @@ export function dilemmaWeight(def: DilemmaDef): number {
   const t = def.triggers
   if (!t) return 1
   if (t.wardTypes) return BALANCE.dilemmaWeightWard
-  if (t.shifts || t.residentProfile || t.minStress !== undefined || t.maxTrivsel !== undefined) return BALANCE.dilemmaWeightContext
+  if (t.shifts || t.residentProfile || t.absence || t.minStress !== undefined || t.maxTrivsel !== undefined) return BALANCE.dilemmaWeightContext
   return 1
 }
 

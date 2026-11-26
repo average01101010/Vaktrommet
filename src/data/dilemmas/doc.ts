@@ -1,3 +1,4 @@
+import { ABSENCES } from '@/data/absence'
 import { SHIFTS } from '@/data/balance'
 import { PROFESSIONS, SKILLS } from '@/data/professions'
 import { RESIDENT_PROFILES } from '@/data/residents'
@@ -45,6 +46,7 @@ function contextText(d: DilemmaDef): string {
   if (t.residentProfile) parts.push(`krever beboer med profilen «${RESIDENT_PROFILES[t.residentProfile].name}»`)
   if (t.minStress !== undefined) parts.push(`snittstress minst ${t.minStress}`)
   if (t.maxTrivsel !== undefined) parts.push(`trivsel høyst ${t.maxTrivsel}`)
+  if (t.absence) parts.push(`når noen har ${t.absence.map((k) => ABSENCES[k].name.toLowerCase()).join(' eller ')}`)
   if (d.minTier) parts.push(`fra avdelingsnivå ${d.minTier + 1}`)
   return parts.length ? parts.join(' · ') : 'alle avdelinger, hele døgnet'
 }

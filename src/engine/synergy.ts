@@ -12,14 +12,13 @@ import type {
   StaffId,
   StaffMember,
 } from '@/types'
+import { canWork, capacityOf, gapsOn, VIKAR } from './absence'
 import { bedsFor, slotsFor } from './modifiers'
 import { computeDemand } from './residents'
 
 const zeroSkills = (): Record<SkillId, number> =>
   Object.fromEntries(SKILL_ORDER.map((s) => [s, 0])) as Record<SkillId, number>
 
-/** Er den ansatte på jobb-bar akkurat nå (ikke syk og ikke på kurs)? */
-export const isAvailable = (s: StaffMember): boolean => s.sickUntil === null && s.course === null
 
 const AFFINITY: Record<ShiftId, string> = { dag: 'morgenfugl', aften: 'kveldsmenneske', natt: 'nattugle' }
 
@@ -68,13 +67,28 @@ export function evaluateShift(
     if (!id) continue
     const s = state.staff[id]
     if (!s) continue
-    if (isAvailable(s)) {
+    if (canWork(s, shift, state.minute)) {
       present.push(s)
       presentIds.push(id)
     } else {
       absentIds.push(id)
     }
   }
+  // ---- Hull som er dekket: ekstravakt av en fast ansatt, eller tilkallingsvikar ----
+  const overtimeIds: StaffId[] = []
+  let vikarer = 0
+  for (const gap of gapsOn(state, shift)) {
+    if (gap.slot >= slots) continue
+    if (gap.cover === 'vikar') vikarer++
+    const cover = gap.cover === 'overtid' && gap.coverId ? state.staff[gap.coverId] : null
+    if (cover && !presentIds.includes(cover.id) && canWork(cover, shift, state.minute)) {
+      present.push(cover)
+      presentIds.push(cover.id)
+      overtimeIds.push(cover.id)
+    }
+  }
+  // Vikaren er med i regnestykket, men er ikke en av de ansatte (lønna er betalt ved tilkalling).
+  const team: StaffMember[] = [...present, ...Array.from({ length: vikarer }, () => VIKAR)]
 
   // ---- Kapasitet per egenskap ----
   const supply = zeroSkills()
@@ -86,12 +100,14 @@ export function evaluateShift(
   let energySum = 0
   let stressSum = 0
   let wages = 0
-  for (const s of present) {
-    const eff = effectiveness(s, shift)
+  for (const s of team) {
+    // Gradert sykmeldte yter og lønnes for halv stilling.
+    const part = s === VIKAR ? 1 : capacityOf(s, state.minute)
+    const eff = s === VIKAR ? BALANCE.vikarEffect : effectiveness(s, shift) * part
     professions[s.profession]++
     energySum += s.energy
     stressSum += s.stress
-    wages += wageOf(s)
+    if (s !== VIKAR) wages += wageOf(s) * part
     for (const skill of SKILL_ORDER) {
       const lvl = s.skills[skill]
       supply[skill] += lvl * eff * mods.skillMult[skill]
@@ -121,7 +137,7 @@ export function evaluateShift(
     const need = demand[skill]
     supplyTotal += supply[skill]
     if (need <= 0) {
-      coverageBySkill[skill] = present.length > 0 ? 1 : 0
+      coverageBySkill[skill] = team.length > 0 ? 1 : 0
       continue
     }
     const ratio = supply[skill] / need
@@ -131,12 +147,12 @@ export function evaluateShift(
     covered += need * c
     if (ratio < minRatio) minRatio = ratio
   }
-  const coverage = demandTotal > 0 ? covered / demandTotal : present.length > 0 ? 1 : 0
+  const coverage = demandTotal > 0 ? covered / demandTotal : team.length > 0 ? 1 : 0
   const utilization = supplyTotal > 0 ? covered / supplyTotal : 0
 
   // Belastningen letter bare når den SVAKESTE egenskapen også er overdekket.
   let workload = 1
-  if (present.length > 0) {
+  if (team.length > 0) {
     if (coverage < 1) workload = 1 + (1 - coverage) * BALANCE.workloadFromGap
     else if (Number.isFinite(minRatio)) {
       workload = 1 - (Math.min(BALANCE.surplusCap, minRatio) - 1) * BALANCE.workloadFromSurplus
@@ -151,15 +167,16 @@ export function evaluateShift(
   // ---- Synergier og problemer ----
   const ctx: SynergyContext = {
     shift,
-    present,
-    absent: absentIds.length,
+    present: team,
+    // Et hull som er dekket av vikar eller ekstravakt, regnes ikke lenger som fravær på vakta.
+    absent: Math.max(0, absentIds.length - vikarer - overtimeIds.length),
     slots,
     professions,
     skillSum,
     skillMax,
-    countWith: (skill, min) => present.reduce((n, s) => n + (s.skills[skill] >= min ? 1 : 0), 0),
-    avgEnergy: present.length ? energySum / present.length : 0,
-    avgStress: present.length ? stressSum / present.length : 0,
+    countWith: (skill, min) => team.reduce((n, s) => n + (s.skills[skill] >= min ? 1 : 0), 0),
+    avgEnergy: team.length ? energySum / team.length : 0,
+    avgStress: team.length ? stressSum / team.length : 0,
   }
 
   const synergies: ActiveSynergy[] = []
@@ -179,7 +196,7 @@ export function evaluateShift(
     avvikMult *= def.effect.avvik ?? 1
     xpMult *= def.effect.xp ?? 1
   }
-  if (present.some((s) => s.trait === 'veileder')) xpMult *= 1.25
+  if (team.some((s) => s.trait === 'veileder')) xpMult *= 1.25
 
   // ---- Rater per spilltime ----
   const tier = state.tier
@@ -238,6 +255,8 @@ export function evaluateShift(
     shift,
     present: presentIds,
     absent: absentIds,
+    vikarer,
+    overtime: overtimeIds,
     slots,
     beds,
     residents,
@@ -266,3 +285,5 @@ export function evaluateShift(
     trivselTarget,
   }
 }
+
+export { isAvailable } from './absence'

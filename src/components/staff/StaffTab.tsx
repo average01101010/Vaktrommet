@@ -3,7 +3,7 @@ import { PROFESSION_ORDER, PROFESSIONS } from '@/data/professions'
 import { useGameState, useModifiers, shiftsByStaff } from '@/store/selectors'
 import type { StaffId } from '@/types'
 import { Chip, Segmented } from '../ui/bits'
-import { IdCard, statusOf } from './IdCard'
+import { IdCard, statusOf, type StaffStatus } from './IdCard'
 import { RecruitPanel } from './RecruitPanel'
 import { RosterPlanner } from './RosterPlanner'
 import { StaffDetailSheet } from './StaffDetailSheet'
@@ -38,9 +38,13 @@ function StaffList({ onOpenStaff }: { onOpenStaff: (id: StaffId) => void }) {
   const mods = useModifiers()
   const onShifts = shiftsByStaff(game, mods)
   const all = game.staffOrder.map((id) => game.staff[id])
-  const sick = all.filter((s) => statusOf(s) === 'syk').length
-  const course = all.filter((s) => statusOf(s) === 'kurs').length
-  const stressed = all.filter((s) => statusOf(s) === 'stresset').length
+  const count = (status: StaffStatus) => all.filter((s) => statusOf(s, game.minute) === status).length
+  const sick = count('syk')
+  const away = count('borte')
+  const gradert = count('gradert')
+  const course = count('kurs')
+  const stressed = count('stresset')
+  const announced = all.filter((s) => s.absence && s.absence.startsAt > game.minute).length
 
   return (
     <div className="space-y-3">
@@ -52,7 +56,10 @@ function StaffList({ onOpenStaff }: { onOpenStaff: (id: StaffId) => void }) {
             <span className="font-mono">{all.filter((s) => s.profession === p).length}</span>
           </Chip>
         ))}
-        {sick > 0 && <Chip tone="bad">Sykmeldt {sick}</Chip>}
+        {sick > 0 && <Chip tone="bad">Sykefravær {sick}</Chip>}
+        {gradert > 0 && <Chip tone="rav">Gradert {gradert}</Chip>}
+        {away > 0 && <Chip tone="petrol">Permisjon {away}</Chip>}
+        {announced > 0 && <Chip tone="rav">Varslet permisjon {announced}</Chip>}
         {stressed > 0 && <Chip tone="rav">Høyt stress {stressed}</Chip>}
         {course > 0 && <Chip tone="petrol">På kurs {course}</Chip>}
       </div>

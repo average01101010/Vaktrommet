@@ -27,9 +27,10 @@ import type {
 import { postDueFollowUps, spawnDilemma } from './dilemmas'
 import { maxSkillLevelFor, modifiersFor, offlineCapHours, tierFor } from './modifiers'
 import { computeDemand, syncResidents } from './residents'
-import { pick, rand, randInt, seedFrom } from './rng'
+import { pick, randInt, seedFrom } from './rng'
 import { starterStaff } from './staffFactory'
-import { evaluateShift, isAvailable } from './synergy'
+import { hourlyAbsence } from './absence'
+import { evaluateShift } from './synergy'
 import {
   dayNumber,
   isoWeekKey,
@@ -44,7 +45,7 @@ import {
 } from './time'
 
 /** Versjon av lagringsformatet. Økes når GameState endrer form – se engine/migrate. */
-export const STATE_VERSION = 6
+export const STATE_VERSION = 7
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
 
@@ -152,6 +153,8 @@ export function createInitialState(nowMs: number, seed: number = nowMs): GameSta
     thanks: defaultThanks(),
     streak: defaultStreak(),
     settings: defaultSettings(),
+    gaps: [],
+    gapCounter: 0,
     events: [],
     eventCounter: 0,
   }
@@ -171,7 +174,7 @@ export function pushEvent(d: GameState, kind: GameEvent['kind'], text: string): 
 
 export const xpForLevel = (level: number): number => Math.round(100 * Math.pow(level, 1.5))
 
-function gainXp(d: GameState, s: StaffMember, xp: number): void {
+export function gainXp(d: GameState, s: StaffMember, xp: number): void {
   if (s.level >= BALANCE.maxLevel) return
   s.xp += xp
   while (s.level < BALANCE.maxLevel && s.xp >= xpForLevel(s.level)) {
@@ -348,31 +351,16 @@ function hourly(d: GameState, ev: ShiftEvaluation, ctx: SimContext): void {
   for (const id of d.staffOrder) {
     const s = d.staff[id]
 
-    // Friskmelding
-    if (s.sickUntil !== null && d.minute >= s.sickUntil) {
-      s.sickUntil = null
-      pushEvent(d, 'frisk', `${s.name} er tilbake på jobb.`)
-    }
     // Fullført kurs
     if (s.course && d.minute >= s.course.endsAt) {
       s.skills[s.course.skill] = Math.min(maxSkillLevelFor(s, mods), s.skills[s.course.skill] + 1)
       s.course = null
       pushEvent(d, 'kurs', `${s.name} har fullført kurs.`)
     }
-    // Sykmelding ved høyt stress
-    if (isAvailable(s) && s.stress > BALANCE.sickStressThreshold) {
-      const over = (s.stress - BALANCE.sickStressThreshold) / (100 - BALANCE.sickStressThreshold)
-      const chance = over * over * BALANCE.sickMaxChancePerHour * (onDuty.has(id) ? 1 : 0.25)
-      if (rand(d) < chance) {
-        const hours = randInt(d, BALANCE.sickMinHours, BALANCE.sickMaxHours)
-        s.sickUntil = d.minute + hours * MIN_PER_HOUR
-        s.stress = BALANCE.stressAfterSick
-        d.lifetime.sickDays += hours / 24
-        totals.sick++
-        pushEvent(d, 'syk', `${s.name} er sykmeldt (${Math.round(hours / 24) || 1} døgn).`)
-      }
-    }
   }
+
+  // ---- Fravær: tilbakekomst, egenmeldinger før vaktstart, permisjoner og hull i turnusen ----
+  hourlyAbsence(d, onDuty, mods, totals)
 
   // ---- Utskrivning og innkomst ----
   const trivselAtDischarge = d.ward.trivsel

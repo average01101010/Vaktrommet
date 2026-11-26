@@ -12,6 +12,7 @@ import { UPGRADES } from '@/data/upgrades'
 import { inspectionQualified, streakStatus, upgradeStatus } from '@/engine/actions'
 import { inspectionAverage } from '@/engine/simulation'
 import { useGame } from '@/store/gameStore'
+import { isAway } from '@/engine/absence'
 import { useGameLoop } from '@/store/useGameLoop'
 import { useSoundscape } from '@/store/useSoundscape'
 
@@ -23,7 +24,8 @@ export default function App() {
   const offlineOpen = useGame((s) => s.offlineReport !== null)
 
   // Små varsler i bunnmenyen: ting som venter på spilleren.
-  const sick = game.staffOrder.filter((id) => game.staff[id].sickUntil !== null).length
+  // Hull i turnusen som ingen har tatt stilling til, teller mest – ellers hvor mange som er borte.
+  const sick = game.gaps.filter((g) => g.cover === 'open').length || game.staffOrder.filter((id) => isAway(game.staff[id], game.minute)).length
   const affordable = UPGRADES.filter((u) => {
     const st = upgradeStatus(game, u)
     return !st.locked && !st.maxed && st.affordable

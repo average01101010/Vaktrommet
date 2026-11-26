@@ -24,6 +24,8 @@ const SHIFT_ICON: Record<ShiftId, IconName> = { dag: 'sol', aften: 'kveld', natt
 
 const EVENT_STYLE: Record<GameEvent['kind'], { icon: IconName; tone: string }> = {
   syk: { icon: 'puls', tone: 'text-fare bg-fare-soft' },
+  fravaer: { icon: 'klokke', tone: 'text-rav-2 bg-rav-soft' },
+  vikar: { icon: 'bruker', tone: 'text-petrol bg-petrol-soft' },
   frisk: { icon: 'hake', tone: 'text-skog bg-skog-soft' },
   kurs: { icon: 'kurs', tone: 'text-petrol bg-petrol-soft' },
   nivaa: { icon: 'stjerner', tone: 'text-rav-2 bg-rav-soft' },

@@ -66,6 +66,7 @@ const ctx = (over: Partial<DilemmaContext> = {}): DilemmaContext => ({
   profiles: new Set<ResidentProfileId>(['kognitiv', 'multisyk', 'saar', 'ernaering', 'palliasjon', 'rehab', 'mestring']),
   avgStress: 20,
   trivsel: 60,
+  absences: new Set(),
   ...over,
 })
 

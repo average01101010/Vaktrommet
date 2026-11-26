@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { BALANCE, RARITY } from '@/data/balance'
 import { PROFESSIONS, SKILL_ORDER, SKILLS, TRAITS } from '@/data/professions'
-import { courseCost, courseDurationMin, courseSkipCost } from '@/engine/actions'
+import { ABSENCES } from '@/data/absence'
+import { absenceStatus, isAway } from '@/engine/absence'
+import { courseCost, courseDurationMin, courseSkipCost, studyLeaveCost } from '@/engine/actions'
 import { maxSkillLevelFor } from '@/engine/modifiers'
 import { xpForLevel } from '@/engine/simulation'
 import { wageOf } from '@/engine/synergy'
@@ -20,7 +22,7 @@ export function StaffDetailSheet({ staffId, onClose }: { staffId: StaffId | null
   const mods = useModifiers()
   const [confirmDismiss, setConfirmDismiss] = useState(false)
   const s = staffId ? game.staff[staffId] : null
-  const { startCourse, skipCourse, dismissStaff } = useGame.getState()
+  const { startCourse, skipCourse, dismissStaff, grantStudyLeave } = useGame.getState()
 
   const close = () => {
     setConfirmDismiss(false)
@@ -30,7 +32,10 @@ export function StaffDetailSheet({ staffId, onClose }: { staffId: StaffId | null
 
   const shifts = shiftsByStaff(game, mods)[s.id] ?? []
   const prof = PROFESSIONS[s.profession]
-  const busy = s.sickUntil !== null || s.course !== null
+  const absence = absenceStatus(s, game.minute)
+  const away = isAway(s, game.minute)
+  const busy = away || s.course !== null
+  const leaveCost = studyLeaveCost(game)
   const cap = maxSkillLevelFor(s, mods)
 
   return (
@@ -70,11 +75,31 @@ export function StaffDetailSheet({ staffId, onClose }: { staffId: StaffId | null
       </div>
 
       {/* Status */}
-      {s.sickUntil !== null && (
-        <div className="mt-4 flex items-center gap-2.5 rounded-xl bg-fare-soft px-3 py-2.5 text-fare">
-          <Icon name="puls" size={18} />
-          <div className="text-[12.5px] font-bold">
-            Sykmeldt – tilbake om ca. {fmtDuration(gameMinutesToRealMs(s.sickUntil - game.minute))}
+      {absence && (
+        <div
+          className={cx(
+            'mt-4 flex items-start gap-2.5 rounded-xl px-3 py-2.5',
+            absence.announced || absence.kind === 'gradert_syk' ? 'bg-rav-soft text-rav-2' : ABSENCES[absence.kind].sick ? 'bg-fare-soft text-fare' : 'bg-petrol-soft text-petrol',
+          )}
+        >
+          <Icon name={ABSENCES[absence.kind].sick ? 'puls' : 'klokke'} size={18} className="mt-px shrink-0" />
+          <div className="text-[12.5px] leading-snug font-bold">
+            {absence.announced ? (
+              <>
+                Varslet {absence.name.toLowerCase()}: starter om {fmtDuration(gameMinutesToRealMs(absence.startsIn))} og varer{' '}
+                {Math.round((s.absence!.endsAt - s.absence!.startsAt) / 1440)} døgn. Juster turnusen i tide.
+              </>
+            ) : absence.kind === 'gradert_syk' ? (
+              <>
+                Gradert sykmelding, 50 %: går bare dagvakt, med halv kapasitet og halv lønn. Blir stresset over{' '}
+                {BALANCE.gradertStressCap}, ender det med full sykmelding. Friskmeldt om {fmtDuration(gameMinutesToRealMs(absence.endsIn))}.
+              </>
+            ) : (
+              <>
+                {absence.name} – tilbake om ca. {fmtDuration(gameMinutesToRealMs(absence.endsIn))}
+                {absence.kind === 'studiepermisjon' && '. Kommer tilbake med et solid erfaringsløft.'}
+              </>
+            )}
           </div>
         </div>
       )}
@@ -150,6 +175,24 @@ export function StaffDetailSheet({ staffId, onClose }: { staffId: StaffId | null
             )
           })}
         </div>
+      </div>
+
+      {/* Studiepermisjon: et rimeligere alternativ til hurtigkurs */}
+      <div className="mt-3 flex items-center gap-3 rounded-xl border border-petrol/15 bg-petrol-soft/50 px-3 py-2.5">
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-extrabold">Studiepermisjon</div>
+          <p className="text-[11.5px] leading-snug text-blekk-2">
+            {BALANCE.studyLeaveDays} døgn fri fra i morgen. Tilbake med ca. {Math.round(BALANCE.studyXpShare * 100)} % av et nivå i erfaring og
+            Fagpoeng til avdelingen. Plassen i turnusen må dekkes så lenge.
+          </p>
+        </div>
+        <button
+          className={cx('knapp shrink-0 !gap-1.5 !px-2.5 !py-1.5 !text-xs', !s.absence && !s.course && game.resources.budget >= leaveCost ? 'knapp-primar' : 'knapp-flat')}
+          disabled={Boolean(s.absence) || s.course !== null || game.resources.budget < leaveCost || s.level >= BALANCE.maxLevel}
+          onClick={() => grantStudyLeave(s.id)}
+        >
+          Innvilg <span className="font-mono">{fmtInt(leaveCost)} kr</span>
+        </button>
       </div>
 
       <div className="mt-5 border-t border-blekk/10 pt-3">

@@ -2,7 +2,7 @@ import type { DilemmaState } from './dilemmas'
 import type { MonetizationState, Resources } from './economy'
 import type { InspectionState, PlayerProfile, QualityStats } from './leaderboard'
 import type { PrestigeState, Resident, WardTypeId } from './residents'
-import type { Roster, ShiftAccumulator, ShiftId, ShiftReport } from './roster'
+import type { Roster, RosterGap, ShiftAccumulator, ShiftId, ShiftReport } from './roster'
 import type { StaffId, StaffMember } from './staff'
 import type { UpgradeLevels } from './upgrades'
 
@@ -80,7 +80,7 @@ export interface GameEvent {
   id: number
   /** Spillminutt. */
   at: number
-  kind: 'syk' | 'frisk' | 'kurs' | 'nivaa' | 'avdeling' | 'beboer' | 'oppdagelse' | 'takk'
+  kind: 'syk' | 'frisk' | 'kurs' | 'nivaa' | 'avdeling' | 'beboer' | 'oppdagelse' | 'takk' | 'fravaer' | 'vikar'
   text: string
 }
 
@@ -129,6 +129,9 @@ export interface GameState {
   thanks: ThanksState
   streak: StreakState
   settings: Settings
+  /** Hull i turnusen på inneværende og neste vakt. */
+  gaps: RosterGap[]
+  gapCounter: number
   events: GameEvent[]
   eventCounter: number
 }

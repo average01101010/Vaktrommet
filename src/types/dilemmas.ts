@@ -1,6 +1,6 @@
 import type { ResidentProfileId, WardTypeId } from './residents'
 import type { ShiftId } from './roster'
-import type { Profession, SkillId } from './staff'
+import type { AbsenceKind, Profession, SkillId } from './staff'
 
 /** Umiddelbar konsekvens av et valg. Beløp skaleres med avdelingsnivå i motoren. */
 export interface Effect {
@@ -62,6 +62,8 @@ export interface DilemmaTriggers {
   minStress?: number
   /** Trivselen på avdelingen må være høyst dette (0–100). */
   maxTrivsel?: number
+  /** Minst én ansatt har (eller er varslet om) et fravær av en av disse typene. */
+  absence?: AbsenceKind[]
   /** Dukker bare opp som oppfølging eller neste steg i en kjede – aldri tilfeldig. */
   isFollowUpOnly?: boolean
 }

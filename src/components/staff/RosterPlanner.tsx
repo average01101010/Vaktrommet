@@ -6,7 +6,7 @@ import { RESIDENT_PROFILES } from '@/data/residents'
 import { BONUS_SYNERGIES, SYNERGIES } from '@/data/synergies'
 import { slotsFor } from '@/engine/modifiers'
 import { residentMix } from '@/engine/residents'
-import { isAvailable } from '@/engine/synergy'
+import { canWork } from '@/engine/absence'
 import { cx, fmtInt, fmtPct } from '@/lib/format'
 import { useGame } from '@/store/gameStore'
 import { shiftsByStaff, useCurrentShift, useGameState, useModifiers, useShiftEvaluation } from '@/store/selectors'
@@ -14,6 +14,7 @@ import type { ShiftEvaluation, ShiftId, StaffId } from '@/types'
 import { Chip, Meter, SectionTitle } from '../ui/bits'
 import { Icon, type IconName } from '../ui/Icon'
 import { Sheet } from '../ui/Sheet'
+import { GapSheet, gapLabel } from './GapSheet'
 import { EmptySlot, IdCard, MiniIdCard } from './IdCard'
 import { useStaffDrag, type SlotRef } from './useStaffDrag'
 
@@ -27,6 +28,8 @@ export function RosterPlanner({ onOpenStaff }: { onOpenStaff: (id: StaffId) => v
   const [activeSlot, setActiveSlot] = useState<number | null>(null)
   const [showSynergies, setShowSynergies] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
+  const [openGap, setOpenGap] = useState<number | null>(null)
+  const openGaps = game.gaps.filter((g) => g.cover === 'open')
   const ev = useShiftEvaluation(shift)
   const { assign, assignFirstFree, unassign, suggestShift } = useGame.getState()
 
@@ -93,6 +96,26 @@ export function RosterPlanner({ onOpenStaff }: { onOpenStaff: (id: StaffId) => v
           })}
         </div>
 
+        {/* Hull som ingen har tatt stilling til ennå */}
+        {openGaps.length > 0 && (
+          <div className="flex animate-inn items-center gap-2.5 rounded-2xl bg-fare-soft px-3.5 py-2.5">
+            <Icon name="avvik" size={18} className="shrink-0 text-fare" />
+            <div className="min-w-0 flex-1 text-[12.5px] leading-snug font-bold text-fare">
+              {openGaps.length === 1 ? 'Ett hull i turnusen' : `${openGaps.length} hull i turnusen`}:{' '}
+              {openGaps.map((g) => `${game.staff[g.staffId]?.name.split(' ')[0] ?? '?'} (${SHIFTS[g.shift].short.toLowerCase()})`).join(', ')}
+            </div>
+            <button
+              className="knapp !bg-fare !px-2.5 !py-1.5 !text-xs text-white"
+              onClick={() => {
+                setShift(openGaps[0].shift)
+                setOpenGap(openGaps[0].id)
+              }}
+            >
+              Løs
+            </button>
+          </div>
+        )}
+
         {/* Vaktplasser */}
         <div className="kort p-3.5">
           <div className="mb-1 flex items-center justify-between gap-2">
@@ -123,6 +146,8 @@ export function RosterPlanner({ onOpenStaff }: { onOpenStaff: (id: StaffId) => v
               const locked = i >= slots
               const id = locked ? null : row[i]
               const ref: SlotRef = { shift, slot: i }
+              const gap = locked ? undefined : game.gaps.find((g) => g.shift === shift && g.slot === i)
+              const label = gap ? gapLabel(gap, gap.coverId ? game.staff[gap.coverId]?.name.split(' ')[0] : undefined) : null
               return (
                 <div
                   key={i}
@@ -147,6 +172,21 @@ export function RosterPlanner({ onOpenStaff }: { onOpenStaff: (id: StaffId) => v
                       label={locked ? 'Ny fløy' : 'Ledig'}
                       onClick={() => setActiveSlot(activeSlot === i ? null : i)}
                     />
+                  )}
+                  {gap && label && (
+                    // Hull i turnusen: den oppsatte er borte på denne vakta
+                    <button
+                      onClick={() => setOpenGap(gap.id)}
+                      className={cx(
+                        'mt-1 w-full truncate rounded-lg px-1 py-1 text-center text-[10px] leading-tight font-extrabold',
+                        label.tone === 'fare' && 'animate-puls bg-fare text-white',
+                        label.tone === 'rav' && 'bg-rav-soft text-rav-2',
+                        label.tone === 'petrol' && 'bg-petrol-soft text-petrol',
+                        label.tone === 'skog' && 'bg-skog-soft text-skog',
+                      )}
+                    >
+                      {label.text}
+                    </button>
                   )}
                 </div>
               )
@@ -216,7 +256,7 @@ export function RosterPlanner({ onOpenStaff }: { onOpenStaff: (id: StaffId) => v
                 key={id}
                 staff={s}
                 shifts={onShifts[id]}
-                dimmed={here || full || !isAvailable(s)}
+                dimmed={here || full || !canWork(s, shift, game.minute)}
                 className={cx('touch-pan-y', drag?.staffId === id && 'opacity-30')}
                 onPointerDown={(e) => start(e, id, null)}
                 onClick={() => pickStaff(id)}
@@ -225,6 +265,8 @@ export function RosterPlanner({ onOpenStaff }: { onOpenStaff: (id: StaffId) => v
           })}
         </div>
       </div>
+
+      <GapSheet gapId={openGap} onClose={() => setOpenGap(null)} />
 
       {/* Kortet som følger pekeren mens man drar */}
       {drag &&

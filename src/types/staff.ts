@@ -35,6 +35,20 @@ export interface Course {
   endsAt: number
 }
 
+/**
+ * Fravær og permisjoner – slik de faktisk kommer i en turnus:
+ * akutt (egenmelding, sykt barn, sykmelding), delvis (gradert) eller varslet (permisjon).
+ */
+export type AbsenceKind = 'egenmelding' | 'sykt_barn' | 'langtidssyk' | 'gradert_syk' | 'studiepermisjon' | 'velferdspermisjon'
+
+export interface Absence {
+  kind: AbsenceKind
+  /** Spillminutt fraværet starter. Ligger det fram i tid, er fraværet varslet og den ansatte jobber som vanlig til da. */
+  startsAt: number
+  /** Spillminutt den ansatte er tilbake. */
+  endsAt: number
+}
+
 export interface StaffMember {
   id: StaffId
   name: string
@@ -50,8 +64,10 @@ export interface StaffMember {
   level: number
   xp: number
   trait: TraitId | null
-  /** Sykmeldt til og med dette spillminuttet (absolutt), ellers null. */
-  sickUntil: number | null
+  /** Pågående eller varslet fravær, ellers null. */
+  absence: Absence | null
+  /** Timer med høyt stress den siste tida. Blir det for mange, ender det med sykmelding. */
+  strain: number
   course: Course | null
   avatar: Avatar
   /** Ansattnummer som vises på ID-kortet. */

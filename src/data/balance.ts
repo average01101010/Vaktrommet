@@ -5,7 +5,7 @@ import type { Profession, Rarity, ShiftId } from '@/types'
  * klient og server (validering) alltid regner likt.
  */
 export const BALANCE = {
-  version: 6,
+  version: 7,
 
   // ---- Tid ----
   /** Ett reelt sekund = fire spillminutter → én vakt (8 t) varer to minutter. */
@@ -82,11 +82,41 @@ export const BALANCE = {
   stressBaseRelief: 0.6,
   stressWhenExhausted: 3,
   stressRecovery: 2.4,
+  // ---- Fravær og permisjoner (varigheter står i data/absence.ts) ----
+  /** Egenmelding vurderes én time før hver vakt, for dem som står på den. */
+  egenmeldingBase: 0.012,
+  egenmeldingFromStress: 0.05,
+  egenmeldingFromFatigue: 0.045,
+  /** Sykt barn: samme tidspunkt, men bare før dag- og aftenvakt. */
+  syktBarnChance: 0.012,
+  /** Stress over terskelen bygger opp slitasje time for time. Nok slitasje gir risiko for sykmelding. */
   sickStressThreshold: 65,
+  strainHoursBeforeSick: 6,
+  strainMax: 24,
   sickMaxChancePerHour: 0.12,
-  sickMinHours: 24,
-  sickMaxHours: 72,
   stressAfterSick: 40,
+  /** Etter en lang sykmelding kommer mange tilbake gradert. */
+  gradertAfterSickChance: 0.5,
+  gradertCapacity: 0.5,
+  /** Blir en gradert sykmeldt så stresset, ender det med full sykmelding igjen. */
+  gradertStressCap: 50,
+  /** Permisjoner varsles så mange timer i forveien. */
+  leaveNoticeHours: 24,
+  velferdChancePerDay: 0.012,
+  studyChancePerDay: 0.006,
+  /** Studiepermisjon innvilget av lederen: varighet, pris og utbytte når den ansatte er tilbake. */
+  studyLeaveDays: 3,
+  studyLeaveCost: 500,
+  /** Erfaring som andel av det som trengs til neste nivå. */
+  studyXpShare: 0.9,
+  studyFagpoeng: 45,
+  /** Tilkallingsvikar: timepris i forhold til en fast helsefagarbeider, og hvor mye vikaren får ut av ferdighetene sine. */
+  vikarWageMult: 1.75,
+  vikarEffect: 0.85,
+  /** Ekstravakt: overtidstillegg, og hva det koster den ansatte. */
+  overtimeWageBonus: 0.5,
+  overtimeStress: 15,
+  overtimeEnergy: 15,
 
   // ---- Trivsel og avvik ----
   trivselBase: 24,
