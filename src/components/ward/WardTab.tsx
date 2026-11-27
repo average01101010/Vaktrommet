@@ -23,6 +23,9 @@ import { RotationSheet } from './RotationSheet'
 import type { AgentInput } from './scene/agents'
 import type { SceneNote } from './scene/layout'
 import { WardScene } from './WardScene'
+import { WardMap } from './WardMap'
+import { RoomSheet } from './RoomSheet'
+import type { PlanRoom } from './plan/floorPlan'
 
 const SHIFT_ICON: Record<ShiftId, IconName> = { dag: 'sol', aften: 'kveld', natt: 'mane' }
 
@@ -54,6 +57,10 @@ export function WardTab({ onGoToRoster, onNavigate }: { onGoToRoster: () => void
   const live = useLiveMinute()
   const [showRotation, setShowRotation] = useState(false)
   const [showAvvik, setShowAvvik] = useState(false)
+  // Kartet over hele avdelingen er utgangspunktet; vaktrommet er nærbildet.
+  const [view, setView] = useState<'kart' | 'vaktrom'>('kart')
+  const [room, setRoom] = useState<PlanRoom | null>(null)
+  const [followed, setFollowed] = useState<string | null>(null)
   const openStatus = avvikCheckStatus(game.ward.openAvvik)
   const closeCost = avvikCloseCost(game)
   const fagboker = WARD_TYPE_ORDER.filter((id) => (game.prestige.fagboker[id] ?? 0) > 0)
@@ -78,6 +85,21 @@ export function WardTab({ onGoToRoster, onNavigate }: { onGoToRoster: () => void
     [game.dilemmas.active],
   )
 
+  const mapResidents = useMemo(
+    () => game.residents.map((r) => ({ id: r.id, name: r.name, room: r.room, profile: r.profile })),
+    [game.residents],
+  )
+  const staffNames = useMemo(() => Object.fromEntries(ev.present.map((id) => [id, game.staff[id].name])), [ev.present, game.staff])
+  const flaggedRooms = useMemo(
+    () => game.dilemmas.active.flatMap((a) => (a.subject ? [a.subject.room] : [])),
+    [game.dilemmas.active],
+  )
+  const followedName = followed
+    ? followed.startsWith('b')
+      ? game.residents.find((r) => `b${r.id}` === followed)?.name
+      : game.staff[followed.slice(1)]?.name
+    : undefined
+
   const avgStress = ev.present.length
     ? ev.present.reduce((n, id) => n + game.staff[id].stress, 0) / ev.present.length
     : 0
@@ -97,20 +119,40 @@ export function WardTab({ onGoToRoster, onNavigate }: { onGoToRoster: () => void
               shift === 'dag' ? 'bg-[#FBF7EE]' : shift === 'aften' ? 'bg-[#F6E8D6]' : 'bg-[#DCDDE6]',
             )}
           />
-          <WardScene
-            className="relative aspect-[10/7] w-full"
-            minute={game.minute}
-            lastTickAt={game.lastTickAt}
-            upgrades={game.upgrades}
-            wardType={game.wardType}
-            beds={ev.beds}
-            trivsel={game.ward.trivsel}
-            coverage={ev.coverage}
-            avgStress={avgStress}
-            thanksActive={ev.thanksBoost}
-            notes={notes}
-            crew={crew}
-          />
+          {view === 'kart' ? (
+            <WardMap
+              className="relative aspect-[10/8] w-full sm:aspect-[10/7]"
+              minute={game.minute}
+              lastTickAt={game.lastTickAt}
+              wardType={game.wardType}
+              beds={ev.beds}
+              residents={mapResidents}
+              crew={crew}
+              staffNames={staffNames}
+              coverage={ev.coverage}
+              avgStress={avgStress}
+              flaggedRooms={flaggedRooms}
+              selected={room?.id ?? null}
+              followed={followedName ? followed : null}
+              onRoom={setRoom}
+              onStopFollow={() => setFollowed(null)}
+            />
+          ) : (
+            <WardScene
+              className="relative aspect-[10/7] w-full"
+              minute={game.minute}
+              lastTickAt={game.lastTickAt}
+              upgrades={game.upgrades}
+              wardType={game.wardType}
+              beds={ev.beds}
+              trivsel={game.ward.trivsel}
+              coverage={ev.coverage}
+              avgStress={avgStress}
+              thanksActive={ev.thanksBoost}
+              notes={notes}
+              crew={crew}
+            />
+          )}
           <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-2.5 sm:p-3">
             <div className="flex items-center gap-2 rounded-full bg-papir/90 py-1 pr-3 pl-1 shadow-kort backdrop-blur">
               <span
@@ -129,6 +171,29 @@ export function WardTab({ onGoToRoster, onNavigate }: { onGoToRoster: () => void
               <span className="font-sans font-extrabold text-blekk">{weekdayName(live)}</span> · Døgn {dayNumber(live)}
             </div>
           </div>
+          <div className="absolute top-11 left-2.5 flex flex-col items-start gap-1.5 sm:top-12 sm:left-3">
+            <div className="flex rounded-full bg-papir/92 p-0.5 text-[11.5px] font-extrabold shadow-kort backdrop-blur" role="tablist" aria-label="Visning">
+              {(['kart', 'vaktrom'] as const).map((id) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={view === id}
+                  onClick={() => setView(id)}
+                  className={cx('rounded-full px-2.5 py-1 transition-colors', view === id ? 'bg-skog text-white' : 'text-blekk-2')}
+                >
+                  {id === 'kart' ? 'Avdelingen' : 'Vaktrommet'}
+                </button>
+              ))}
+            </div>
+            {view === 'kart' && followedName && (
+              <button
+                onClick={() => setFollowed(null)}
+                className="flex animate-inn items-center gap-1.5 rounded-full bg-rav py-1 pr-2 pl-2.5 text-[11.5px] font-extrabold text-white shadow-kort"
+              >
+                Følger {followedName.split(' ')[0]} <Icon name="kryss" size={12} />
+              </button>
+            )}
+          </div>
           {ev.present.length === 0 && (
             <button
               onClick={onGoToRoster}
@@ -138,7 +203,7 @@ export function WardTab({ onGoToRoster, onNavigate }: { onGoToRoster: () => void
             </button>
           )}
           {/* Framdrift i vakta */}
-          <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-papir/95 to-papir/0 px-3 pt-5 pb-2">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-papir/95 to-papir/0 px-3 pt-5 pb-2">
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-blekk/10">
               <div className="h-full rounded-full bg-skog transition-[width] duration-1000 ease-linear" style={{ width: `${shiftProgress(live) * 100}%` }} />
             </div>
@@ -314,6 +379,17 @@ export function WardTab({ onGoToRoster, onNavigate }: { onGoToRoster: () => void
           )}
         </div>
         <AvvikSheet open={showAvvik} onClose={() => setShowAvvik(false)} />
+      <RoomSheet
+        room={room}
+        onClose={() => setRoom(null)}
+        onFollow={(key) => {
+          setView('kart')
+          setFollowed(key)
+        }}
+        onEnterVaktrom={() => setView('vaktrom')}
+        onOpenAvvik={() => setShowAvvik(true)}
+        onNavigate={onNavigate}
+      />
       <RotationSheet open={showRotation} onClose={() => setShowRotation(false)} />
 
         {/* ---- Logg ---- */}

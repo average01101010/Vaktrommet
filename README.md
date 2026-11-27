@@ -66,6 +66,17 @@ supabase/migrations/   Databaseskjema (ikke kjørt automatisk)
   fagbøker, Kaffekopper og inntil tre ansatte, og bygger opp neste enhet med høyere terskler.
   Alle fem avdelingstyper kan velges – også sykehjemsavdelingen på nytt, for å løfte fagboka videre.
 
+## Avdelingskartet
+
+Hjem-skjermen viser hele avdelingen ovenfra (`src/components/ward/WardMap.tsx`): en korridor med fellesrom i vest og **ett rom per beboer** i øst. Kartet kan dras, knipes og zoomes, og et trykk på et rom åpner det.
+
+- **Planløsning** (`plan/floorPlan.ts`): en ren funksjon av avdelingstype og sengetall. Fellesrommene er vaktrom, medisinrom, kontor, møterom, kjøkken, spisestue og stue. Rom som ikke er bygd ennå står som byggetomter i enden av fløyen, så utbyggingen synes. Fordi planen ikke leser spilltilstanden direkte, kan samme kode senere tegne etasjer du har overlevert.
+- **Figurer** (`plan/planAgents.ts`): beboerne følger en døgnrytme – seng om natta, frokost, middag og kvelds i spisestua, og stue, lenestol eller rusletur imellom. Pleierne går mellom rommene, samles i vaktrommet til rapport og rykker ut når en ringesnor lyser over en dør. Presset på vakta styrer hvor ofte det ringer.
+- **Romark** (`RoomSheet.tsx`): beboerrom viser profil, pleietyngde, liggetid og saker på korktavla; fellesrom viser hva rommet brukes til og gir snarvei til avvik, pårørendesamtaler, turnus og måltider. **Følg** lar kameraet holde seg på en beboer eller en ansatt.
+- **Vaktrommet** er nærbildet: den detaljerte 2.5D-scenen åpnes fra bryteren over kartet eller fra vaktrommet på kartet.
+
+Kartet er pynt oppå spilltilstanden og endrer den aldri. I utvikling ligger figurene på `__vaktrommetMap.crowd`.
+
 ## Avdelingsvisningen
 
 Scenen i `src/components/ward/scene/` er et rent 2D-canvas som speiler spilltilstanden:
