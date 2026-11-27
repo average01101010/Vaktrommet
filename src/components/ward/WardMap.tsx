@@ -4,7 +4,7 @@ import { liveMinute, MIN_PER_DAY, MIN_PER_SHIFT, minuteOfDay } from '@/engine/ti
 import { sound } from '@/services/sound'
 import type { WardTypeId } from '@/types'
 import type { AgentInput } from './scene/agents'
-import { drawPlan, toWorld, type Camera } from './plan/drawPlan'
+import { drawPlan, fitCamera as fitPlan, panBy, toWorld, type Camera } from './plan/drawPlan'
 import { bedRoomId, buildFloorPlan, roomAt, type FloorPlan, type PlanRoom } from './plan/floorPlan'
 import { PlanCrowd, type PlanResidentInput } from './plan/planAgents'
 
@@ -36,14 +36,11 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 function fitCamera(plan: FloorPlan, w: number, h: number): Camera {
   const shown = Math.min(plan.w, plan.builtW + (plan.builtW < plan.w ? 2.8 : 0))
   // Merkelappene øverst og vaktlinja nederst ligger oppå kartet: hold bygget unna dem.
-  const top = Math.min(84, h * 0.24)
-  const bottom = Math.min(30, h * 0.08)
-  const u = Math.min((w - 12) / (shown + 1.2), (h - top - bottom) / (plan.h + 0.9))
-  return { x: shown / 2 - 0.3, y: plan.h / 2 - (top - bottom) / 2 / u, u }
+  return fitPlan(plan, shown, w, h, Math.min(84, h * 0.24), Math.min(30, h * 0.08))
 }
 
 /**
- * Hele avdelingen sett ovenfra: korridoren, fellesrommene og ett rom per
+ * Hele avdelingen i 2.5D: korridoren, fellesrommene og ett rom per
  * beboer. Kartet kan dras og zoomes, og et trykk på et rom åpner det.
  * Som resten av scenen er dette en ren avspeiling av spilltilstanden.
  */
@@ -75,14 +72,14 @@ export function WardMap(props: WardMapProps) {
     let userMoved = false
     const limits = () => {
       const fit = fitCamera(planRef.current, w, h)
-      return { min: fit.u * 0.8, max: Math.max(fit.u * 1.2, 64) }
+      return { min: fit.u * 0.8, max: Math.max(fit.u * 1.2, 96) }
     }
     const constrain = () => {
       const p = planRef.current
       const { min, max } = limits()
       cam.u = clamp(cam.u, min, max)
-      cam.x = clamp(cam.x, -1, p.w + 1)
-      cam.y = clamp(cam.y, -0.5, p.h + 0.5)
+      cam.x = clamp(cam.x, -3, p.w + 3)
+      cam.y = clamp(cam.y, -3, p.h + 3)
     }
     const resize = () => {
       const rect = wrap.getBoundingClientRect()
@@ -144,8 +141,7 @@ export function WardMap(props: WardMapProps) {
         if (moved > 6) {
           userMoved = true
           if (latest.current.followed) latest.current.onStopFollow()
-          cam.x -= (now.x - prev.x) / cam.u
-          cam.y -= (now.y - prev.y) / cam.u
+          panBy(cam, now.x - prev.x, now.y - prev.y)
           constrain()
         }
       } else if (pointers.size === 2) {
@@ -180,14 +176,12 @@ export function WardMap(props: WardMapProps) {
       zoomAt(at.x, at.y, Math.exp(-e.deltaY * 0.0015))
     }
     const key = (e: KeyboardEvent) => {
-      const stepSize = 40 / cam.u
-      const moves: Record<string, [number, number]> = { ArrowLeft: [-stepSize, 0], ArrowRight: [stepSize, 0], ArrowUp: [0, -stepSize], ArrowDown: [0, stepSize] }
+      const moves: Record<string, [number, number]> = { ArrowLeft: [40, 0], ArrowRight: [-40, 0], ArrowUp: [0, 40], ArrowDown: [0, -40] }
       const m = moves[e.key]
       if (m) {
         e.preventDefault()
         userMoved = true
-        cam.x += m[0]
-        cam.y += m[1]
+        panBy(cam, m[0], m[1])
         constrain()
       } else if (e.key === '+' || e.key === '=') api.current?.zoom(1.25)
       else if (e.key === '-') api.current?.zoom(0.8)
@@ -238,9 +232,9 @@ export function WardMap(props: WardMapProps) {
         const f = crowd.find(p.followed)
         if (f) {
           const k = 1 - Math.exp(-dt * 4)
-          cam.u += (Math.max(cam.u, 30) - cam.u) * k
+          cam.u += (Math.max(cam.u, 44) - cam.u) * k
           cam.x += (f.x - cam.x) * k
-          cam.y += (f.y - 0.6 - cam.y) * k
+          cam.y += (f.y - cam.y) * k
         }
       }
 
@@ -287,7 +281,7 @@ export function WardMap(props: WardMapProps) {
         tabIndex={0}
         className="block h-full w-full cursor-grab touch-none outline-none active:cursor-grabbing"
         role="img"
-        aria-label="Kart over avdelingen. Dra for å flytte, knip eller rull for å zoome, og trykk på et rom for å åpne det."
+        aria-label="Avdelingen sett på skrå ovenfra. Dra for å flytte, knip eller rull for å zoome, og trykk på et rom for å åpne det."
       />
       <div className="pointer-events-none absolute right-2.5 bottom-9 z-10 flex flex-col gap-1.5">
         <button type="button" className={tool} aria-label="Zoom inn" onClick={() => api.current?.zoom(1.3)}>

@@ -68,7 +68,7 @@ supabase/migrations/   Databaseskjema (ikke kjørt automatisk)
 
 ## Avdelingskartet
 
-Hjem-skjermen viser hele avdelingen ovenfra (`src/components/ward/WardMap.tsx`): en korridor med fellesrom i vest og **ett rom per beboer** i øst. Kartet kan dras, knipes og zoomes, og et trykk på et rom åpner det.
+Hjem-skjermen viser hele avdelingen i 2.5D, i samme skrå vinkel som vaktrommet (`src/components/ward/WardMap.tsx`): en korridor med fellesrom i vest og **ett rom per beboer** i øst. Kartet kan dras, knipes og zoomes, og et trykk på et rom åpner det.
 
 - **Planløsning** (`plan/floorPlan.ts`): en ren funksjon av avdelingstype og sengetall. Fellesrommene er vaktrom, medisinrom, kontor, møterom, kjøkken, spisestue og stue. Rom som ikke er bygd ennå står som byggetomter i enden av fløyen, så utbyggingen synes. Fordi planen ikke leser spilltilstanden direkte, kan samme kode senere tegne etasjer du har overlevert.
 - **Figurer** (`plan/planAgents.ts`): beboerne følger en døgnrytme – seng om natta, frokost, middag og kvelds i spisestua, og stue, lenestol eller rusletur imellom. Pleierne går mellom rommene, samles i vaktrommet til rapport og rykker ut når en ringesnor lyser over en dør. Presset på vakta styrer hvor ofte det ringer.
