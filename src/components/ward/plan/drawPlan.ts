@@ -1,14 +1,17 @@
-import type { WardTypeId } from '@/types'
 import { drawFigure } from '../scene/character'
-import { box, hexToRgb, keyframe, P, poly, roundRect, type BoxColors, type Pt as ScreenPt, type View } from '../scene/iso'
-import { WARD_LOOKS } from '../scene/layout'
+import { lighting } from '../scene/draw'
+import type { View } from '../scene/iso'
+import { WARD_LOOKS, type WardLook } from '../scene/layout'
 import { DOOR_W, type FloorPlan, type PlanRoom, type Pt } from './floorPlan'
 import type { LampState, PlanFigure } from './planAgents'
+import { blend, box, C, darken, faces, LOW, MID, onFloor, onPlaneX, onPlaneY, P, poly, quad, roundRect, Scene, T, tiles, WALL_H, type Ctx } from './planKit'
+import { furnishCorridor, furnishRoom } from './planRooms'
 
 /**
- * Avdelingskartet i 2.5D: samme isometriske vinkel som vaktrommet, med
- * ytterveggene bak i full høyde og veggene foran skåret ned, så man ser inn i
- * alle rom. Plan-x går ned mot høyre på skjermen, plan-y ned mot venstre.
+ * Avdelingskartet i 2.5D: et diorama i samme stil som vaktrommet. Bakveggene
+ * (nord og vest) står i full høyde med vinduer og veggpynt; veggene foran er
+ * skåret ned, så man ser inn i alle rom. Plan-x går ned mot høyre på skjermen,
+ * plan-y ned mot venstre.
  */
 
 /** Kameraet: verdenspunktet midt i bildet og flisbredden i piksler. */
@@ -24,18 +27,13 @@ export interface PlanDrawState {
   lamps: Map<string, LampState>
   minuteOfDay: number
   time: number
-  /** Navn på beboeren i hvert rom (rom-id → fornavn). */
-  names: Record<string, string>
   /** Rom med en sak på korktavla. */
   flagged: ReadonlySet<string>
+  /** Antall lapper på korktavla. */
+  notes: number
   selected: string | null
   followed: string | null
 }
-
-/** Høyden på ytterveggene bak, og på de nedskårne veggene ellers. */
-export const WALL_H = 2.1
-const LOW = 0.5
-const THICK = 0.12
 
 export function viewFor(cam: Camera, width: number, height: number): View {
   const tw = cam.u
@@ -71,528 +69,687 @@ export function panBy(cam: Camera, dx: number, dy: number): void {
 /** Zoom og utsnitt som viser `shownW` enheter av fløyen, med luft til merkelappene oppå kartet. */
 export function fitCamera(plan: FloorPlan, shownW: number, w: number, h: number, top: number, bottom: number): Camera {
   const span = shownW + plan.h
-  const u = Math.min((w - 10) / (span / 2 + 0.3), (h - top - bottom - 6) / (span / 4 + WALL_H * 0.56 + 0.2))
+  const wallPx = (WALL_H + 0.5) * 0.56
+  const u = Math.min((w - 10) / (span / 2 + 0.3), (h - top - bottom - 6) / (span / 4 + wallPx + 0.25))
   const cam: Camera = { x: shownW / 2, y: plan.h / 2, u }
   // Bygget står midt i det ledige feltet: ned for merkelappene og for vegghøyden.
-  panBy(cam, 0, (top - bottom) / 2 + (WALL_H * 0.56 * u) / 2)
+  panBy(cam, 0, (top - bottom) / 2 + (wallPx * u) / 2)
   return cam
 }
 
-// ---------- Farger ----------
+/** z → avstand ned fra veggtoppen, i hundredeler (veggflatenes y-akse). */
+const zc = (z: number) => (WALL_H - z) * 100
 
-const toHex = (r: number, g: number, b: number) => `#${[r, g, b].map((n) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0')).join('')}`
+const GLASS_ROOMS = new Set(['vaktrom', 'kontor', 'moterom'])
 
-/** Blander to hex-farger og gir hex tilbake, så resultatet kan blandes videre. */
-function blend(a: string, b: string, t: number): string {
-  const [r1, g1, b1] = hexToRgb(a)
-  const [r2, g2, b2] = hexToRgb(b)
-  return toHex(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t)
-}
-const lighten = (c: string, t: number) => blend(c, '#ffffff', t)
-const darken = (c: string, t: number) => blend(c, '#1c1a17', t)
+// ---------------------------------------------------------------------------
+// Skallet: plate, korridor og bakvegger
+// ---------------------------------------------------------------------------
 
-const tone = (c: string): BoxColors => ({ top: c, left: darken(c, 0.14), right: darken(c, 0.27), stroke: 'rgba(40,34,28,0.22)' })
+function drawSlab(ctx: Ctx, v: View, plan: FloorPlan, look: WardLook): void {
+  // Myk skygge under dioramaet
+  const [cx, cy] = P(v, plan.builtW / 2, plan.h / 2, -0.3)
+  const r = v.tw * (plan.builtW + plan.h) * 0.3
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r)
+  g.addColorStop(0, 'rgba(28,37,38,0.2)')
+  g.addColorStop(0.6, 'rgba(28,37,38,0.1)')
+  g.addColorStop(1, 'rgba(28,37,38,0)')
+  ctx.save()
+  ctx.translate(cx, cy + v.tw * 0.5)
+  ctx.scale(1, 0.5)
+  ctx.translate(-cx, -cy)
+  ctx.fillStyle = g
+  ctx.fillRect(cx - r, cy - r, r * 2, r * 2)
+  ctx.restore()
 
-const WOOD = '#C9A26B'
-const WOOD_DARK = '#A9824F'
-const STEEL = '#C5CCCF'
-const WHITE = '#F6F3EC'
-
-const FLOORS: Record<string, string> = {
-  beboer: '#E9DAC0',
-  vaktrom: '#D9E3DC',
-  medisinrom: '#DFE7EC',
-  kontor: '#E4D9C4',
-  moterom: '#DFD9CB',
-  kjokken: '#DEE2DF',
-  spisestue: '#E8DCC5',
-  stue: '#E6D9C2',
-}
-
-type Ctx = CanvasRenderingContext2D
-
-/** En ting som skal tegnes i dybderekkefølge. */
-interface Item {
-  depth: number
-  draw: () => void
-}
-
-/** Speiler romlokale mål for rom sør for korridoren, der døra er øverst. */
-function local(room: PlanRoom) {
-  const north = room.side === 'nord'
-  // u: langs veggen, v: avstand fra døra og innover, w: bredde, d: dybde innover.
-  return (u: number, v: number, w: number, d: number): [number, number, number, number] => [room.x + u, north ? room.y + room.h - v - d : room.y + v, w, d]
-}
-
-class Scene {
-  readonly items: Item[] = []
-  constructor(
-    readonly ctx: Ctx,
-    readonly v: View,
-  ) {}
-
-  /** En boks på gulvet (eller løftet til z). */
-  box(x: number, y: number, w: number, d: number, hgt: number, color: string, z = 0, bias = 0, outline = true): void {
-    const { ctx, v } = this
-    const c = outline ? tone(color) : { ...tone(color), stroke: undefined }
-    this.items.push({ depth: x + w / 2 + y + d / 2 + bias, draw: () => box(ctx, v, x, y, z, w, d, hgt, c) })
-  }
-
-  /** Flatt felt på gulvet, tegnet med en gang (tepper, matter). */
-  flat(x: number, y: number, w: number, d: number, color: string, z = 0.005): void {
-    const { v } = this
-    poly(this.ctx, [P(v, x, y, z), P(v, x + w, y, z), P(v, x + w, y + d, z), P(v, x, y + d, z)], color)
-  }
-
-  /** En lav vegg, delt i korte biter så figurer kan stå både foran og bak den. */
-  wall(x0: number, y0: number, x1: number, y1: number, color: string, hgt = LOW): void {
-    const alongX = Math.abs(x1 - x0) >= Math.abs(y1 - y0)
-    const len = alongX ? x1 - x0 : y1 - y0
-    if (len <= 0.001) return
-    const parts = Math.max(1, Math.ceil(len / 0.9))
-    for (let i = 0; i < parts; i++) {
-      const a = (len * i) / parts
-      const b = len / parts
-      if (alongX) this.box(x0 + a, y0 - THICK / 2, b, THICK, hgt, color, 0, -0.02, false)
-      else this.box(x0 - THICK / 2, y0 + a, THICK, b, hgt, color, 0, -0.02, false)
+  // Byggetomter: stiplet omriss og stikker der neste rom kan komme
+  for (const room of plan.rooms) {
+    if (room.kind !== 'tomt') continue
+    ctx.save()
+    ctx.setLineDash([v.tw * 0.2, v.tw * 0.14])
+    poly(ctx, quad(v, room.x + 0.14, room.y + 0.14, room.w - 0.28, room.h - 0.28, -0.2), 'rgba(201,157,107,0.16)', 'rgba(140,105,60,0.55)', Math.max(1, v.tw * 0.035))
+    ctx.restore()
+    for (const [px, py] of [[room.x + 0.14, room.y + 0.14], [room.x + room.w - 0.14, room.y + 0.14], [room.x + 0.14, room.y + room.h - 0.14], [room.x + room.w - 0.14, room.y + room.h - 0.14]]) {
+      box(ctx, v, px - 0.03, py - 0.03, -0.2, 0.06, 0.06, 0.3, faces('#C99D6B'))
+      box(ctx, v, px - 0.03, py - 0.03, 0.1, 0.06, 0.06, 0.06, faces('#D97736'))
     }
   }
 
-  chair(x: number, y: number, color: string, back: 'n' | 's' | 'w' | 'e' | null = null): void {
-    this.box(x - 0.22, y - 0.22, 0.44, 0.44, 0.3, color)
-    if (back === 'n') this.box(x - 0.22, y - 0.25, 0.44, 0.08, 0.62, darken(color, 0.08), 0, -0.2)
-    if (back === 'w') this.box(x - 0.25, y - 0.22, 0.08, 0.44, 0.62, darken(color, 0.08), 0, -0.2)
-  }
-
-  plant(x: number, y: number): void {
-    const { ctx, v } = this
-    this.box(x - 0.14, y - 0.14, 0.28, 0.28, 0.26, '#B7714D')
-    this.items.push({
-      depth: x + y + 0.05,
-      draw: () => {
-        const [sx, sy] = P(v, x, y, 0.5)
-        for (const [dx, dy, r, c] of [[0, 0, 0.26, '#4F8A62'], [-0.1, -0.1, 0.17, '#6FAE7E'], [0.1, -0.06, 0.15, '#5E9C70']] as const) {
-          ctx.beginPath()
-          ctx.arc(sx + dx * v.tw, sy + dy * v.tw, r * v.tw * 0.62, 0, Math.PI * 2)
-          ctx.fillStyle = c
-          ctx.fill()
-        }
-      },
-    })
-  }
-
-  flush(): void {
-    this.items.sort((a, b) => a.depth - b.depth)
-    for (const item of this.items) item.draw()
-    this.items.length = 0
-  }
-}
-
-function furnish(sc: Scene, room: PlanRoom, ward: WardTypeId, st: PlanDrawState): void {
-  const L = local(room)
-  const { w, h } = room
-  const north = room.side === 'nord'
-  // Høye ting står bare mot veggen bak; mot veggen foran ville de skjult rommet.
-  const tall = (hgt: number) => (north ? hgt : Math.min(hgt, 0.85))
-  const fabric = ward === 'demens' ? '#C98B6B' : ward === 'lindrende' ? '#9A86A8' : '#7FA08C'
-  switch (room.kind) {
-    case 'beboer': {
-      // Bad innerst: fliser, toalett og vask bak en lav skillevegg
-      const [bx, by, bw, bd] = L(w - 1.05, h - 1.15, 1.05, 1.15)
-      sc.flat(bx, by, bw, bd, '#CFE0E6')
-      sc.box(...L(w - 0.5, h - 0.5, 0.32, 0.4), 0.38, WHITE)
-      sc.box(...L(w - 0.98, h - 0.38, 0.34, 0.26), tall(0.8), WHITE)
-      sc.wall(bx, north ? by + bd : by, bx + 0.55, north ? by + bd : by, '#DAD2C2', 0.42)
-      // Seng med dyne og pute, hodeenden innerst
-      const [sx, sy, sw, sd] = L(0.26, h - 2.15, 0.98, 1.98)
-      sc.box(sx, sy, sw, sd, 0.36, WHITE)
-      sc.box(sx + 0.04, north ? sy + 0.62 : sy + 0.04, sw - 0.08, sd - 0.66, 0.08, lighten(fabric, 0.35), 0.36, 0.01)
-      sc.box(sx + 0.16, north ? sy + 0.12 : sy + sd - 0.5, sw - 0.32, 0.38, 0.09, '#FFFFFF', 0.36, 0.01)
-      sc.box(sx, north ? sy - 0.02 : sy + sd - 0.06, sw, 0.08, north ? 0.78 : 0.5, WOOD_DARK, 0, north ? -0.3 : 0.3)
-      // Nattbord og lenestol
-      sc.box(...L(1.34, h - 0.6, 0.4, 0.4), 0.5, WOOD)
-      const [cx, cy] = room.spots.stol
-      sc.chair(cx, cy, fabric, 'w')
-      // Noe personlig
-      if ((room.bed ?? 0) % 3 !== 0) sc.plant(room.x + w - 0.36, north ? room.y + h - 0.42 : room.y + 0.42)
-      break
-    }
-    case 'vaktrom': {
-      for (const s of ['s1', 's2', 's3', 's4', 's5', 's6']) sc.chair(room.spots[s][0], room.spots[s][1], '#5E7F8F')
-      sc.box(...L(1.0, 2.15, 1.4, 0.95), 0.66, WOOD)
-      // PC-pult innerst og kaffehjørne
-      sc.box(...L(w - 1.5, h - 0.62, 1.3, 0.5), 0.7, '#D8D2C6')
-      sc.box(...L(w - 1.1, h - 0.5, 0.5, 0.08), 0.34, '#2F3B44', 0.7, 0.02)
-      sc.box(...L(0.22, h - 0.56, 1.0, 0.44), 0.8, '#CFC8BA')
-      sc.box(...L(0.42, h - 0.46, 0.2, 0.2), 0.26, '#3A2F28', 0.8, 0.02)
-      break
-    }
-    case 'medisinrom': {
-      const n = 3
-      for (let i = 0; i < n; i++) sc.box(...L(0.18 + (i * (w - 0.36)) / n, h - 0.55, (w - 0.36) / n - 0.04, 0.45), tall(1.7), i === 1 ? '#C7DCE6' : '#EEF2F3')
-      sc.box(...L(0.18, 1.4, 0.5, 1.2), 0.85, '#DCE3E6')
-      break
-    }
-    case 'kontor': {
-      sc.box(...L(w * 0.5 - 0.8, h - 1.1, 1.6, 0.62), 0.7, WOOD)
-      sc.box(...L(w * 0.5 - 0.26, h - 0.92, 0.52, 0.08), 0.32, '#2F3B44', 0.7, 0.02)
-      sc.chair(room.spots.pult[0], room.spots.pult[1], '#4F6D5E')
-      sc.chair(room.spots.gjest[0], room.spots.gjest[1], fabric)
-      sc.box(...L(0.16, h - 0.5, 0.72, 0.36), tall(1.5), WOOD_DARK)
-      sc.plant(...(L(w - 0.42, h - 0.45, 0, 0).slice(0, 2) as Pt))
-      break
-    }
-    case 'moterom': {
-      for (const s of ['s1', 's2', 's3', 's4']) sc.chair(room.spots[s][0], room.spots[s][1], '#6E7F96')
-      sc.box(...L(w * 0.5 - 0.5, 1.5, 1.0, 1.65), 0.68, WOOD)
-      sc.box(...L(w * 0.5 - 0.6, h - 0.22, 1.2, 0.08), tall(1.5), WHITE)
-      break
-    }
-    case 'kjokken': {
-      sc.box(...L(0.14, h - 0.66, w - 0.9, 0.52), 0.86, STEEL)
-      sc.box(...L(0.36, h - 0.58, 0.6, 0.36), 0.03, '#3B4247', 0.86, 0.02)
-      sc.box(...L(1.3, h - 0.56, 0.62, 0.32), 0.03, '#9FA9AE', 0.86, 0.02)
-      sc.box(...L(w - 0.74, h - 0.7, 0.6, 0.58), tall(1.75), '#E8EBEC')
-      sc.box(...L(0.14, 1.3, 0.5, 1.4), 0.86, STEEL)
-      // Serveringstralle
-      const [tx, ty] = room.spots.tralle
-      sc.box(tx - 0.3, ty - 0.22, 0.6, 0.44, 0.06, '#AEB8BD', 0.62)
-      sc.box(tx - 0.3, ty - 0.22, 0.6, 0.44, 0.06, '#AEB8BD', 0.2, -0.01)
-      sc.box(tx - 0.2, ty - 0.1, 0.16, 0.16, 0.14, WHITE, 0.68, 0.02)
-      sc.box(tx + 0.04, ty - 0.1, 0.16, 0.16, 0.2, '#D9A441', 0.68, 0.02)
-      break
-    }
-    case 'spisestue': {
-      const seats = Object.entries(room.spots).filter(([k]) => k.startsWith('sete'))
-      for (const [, [sx, sy]] of seats) sc.chair(sx, sy, fabric)
-      const [tx, ty, tw, td] = L(0.5, 2.05, w - 1.0, 0.9)
-      sc.box(tx, ty, tw, td, 0.68, WOOD)
-      const m = st.minuteOfDay
-      const dining = (m >= 505 && m < 575) || (m >= 775 && m < 845) || (m >= 1105 && m < 1160)
-      // Dekket på til måltidene, ellers en løper og en blomst
-      if (dining) for (const [, [sx, sy]] of seats) sc.box(sx - 0.11, (sy < ty ? ty + 0.08 : ty + td - 0.3), 0.22, 0.22, 0.03, '#FFFFFF', 0.68, 0.03)
-      else sc.box(tx + tw / 2 - 0.8, ty + td / 2 - 0.13, 1.6, 0.26, 0.015, '#E9E2CF', 0.68, 0.03)
-      sc.box(...L(w - 1.3, h - 0.5, 1.1, 0.38), 0.8, WOOD_DARK)
-      sc.plant(...(L(0.4, h - 0.45, 0, 0).slice(0, 2) as Pt))
-      break
-    }
-    case 'stue': {
-      const [rx, ry, rw, rd] = L(0.5, 0.8, w - 1.0, 2.5)
-      sc.flat(rx, ry, rw, rd, lighten(fabric, 0.66))
-      for (let row = 0; row < 2; row++) {
-        const [sx, sy, sw, sd] = L(0.55, 1.05 + row * 1.05, w - 1.1, 0.6)
-        sc.box(sx, sy, sw, sd, 0.3, fabric)
-        // Ryggen står mot døra, så de som sitter ser mot TV-en
-        sc.box(sx, north ? sy + sd - 0.1 : sy, sw, 0.1, 0.56, darken(fabric, 0.1), 0, north ? 0.25 : -0.25)
-      }
-      sc.box(...L(w * 0.5 - 0.8, h - 0.42, 1.6, 0.3), 0.42, WOOD_DARK)
-      const flicker = 0.6 + 0.4 * Math.sin(st.time * 2.3)
-      sc.box(...L(w * 0.5 - 0.62, h - 0.3, 1.24, 0.06), 0.62, blend('#1E2A33', '#7FB4DC', 0.35 + 0.3 * flicker), 0.42, 0.02)
-      sc.box(...L(0.2, h - 0.62, 0.44, 0.44), 0.5, WOOD)
-      sc.plant(...(L(w - 0.42, h - 0.42, 0, 0).slice(0, 2) as Pt))
-      break
-    }
-    case 'tomt':
-      break
-  }
-}
-
-const quad = (v: View, x: number, y: number, w: number, d: number, z = 0): ScreenPt[] => [P(v, x, y, z), P(v, x + w, y, z), P(v, x + w, y + d, z), P(v, x, y + d, z)]
-
-function drawFloors(ctx: Ctx, v: View, st: PlanDrawState, look: (typeof WARD_LOOKS)[WardTypeId]): void {
-  const { plan } = st
+  box(ctx, v, 0, 0, -0.22, plan.builtW, plan.h, 0.22, { top: '#C9A77C', left: '#9A7A52', right: '#86683F' })
+  // Korridoren: linoleum med kantstriper og fliser
   const c = plan.corridor
-  // Grunnmur
-  poly(ctx, [P(v, 0, plan.h, 0), P(v, plan.builtW, plan.h, 0), P(v, plan.builtW, plan.h, -0.25), P(v, 0, plan.h, -0.25)], '#8F8676')
-  poly(ctx, [P(v, plan.builtW, 0, 0), P(v, plan.builtW, plan.h, 0), P(v, plan.builtW, plan.h, -0.25), P(v, plan.builtW, 0, -0.25)], '#7C7466')
-  poly(ctx, quad(v, 0, 0, plan.builtW, plan.h), '#CFC6B4')
-  // Korridoren med ledelinje
-  poly(ctx, quad(v, c.x, c.y, plan.builtW, c.h), look.lino)
-  poly(ctx, quad(v, c.x, c.y + c.h / 2 - 0.04, plan.builtW, 0.08), look.linoEdge)
-  poly(ctx, quad(v, 0.2, c.y + c.h / 2 - 0.5, 0.9, 1.0), '#8E7B63')
-  for (const r of plan.rooms) {
-    if (r.kind === 'tomt') {
-      ctx.save()
-      ctx.setLineDash([v.tw * 0.2, v.tw * 0.14])
-      poly(ctx, quad(v, r.x + 0.15, r.y + 0.15, r.w - 0.3, r.h - 0.3), 'rgba(160,130,90,0.2)', 'rgba(110,90,60,0.6)', Math.max(1, v.tw * 0.04))
-      ctx.restore()
-      continue
-    }
-    poly(ctx, quad(v, r.x, r.y, r.w, r.h), FLOORS[r.kind] ?? '#E8DDC8')
-  }
-}
-
-/** Ytterveggene bak: nordveggen med vinduer og vestgavlen med inngangen. */
-function drawBackWalls(ctx: Ctx, v: View, st: PlanDrawState, look: (typeof WARD_LOOKS)[WardTypeId], dark: number): void {
-  const { plan } = st
-  const wallN = blend('#F1EADC', look.dado, 0.3)
-  const wallW = darken(wallN, 0.09)
-  const glass = blend('#BFDDEA', '#F6D58A', dark * 0.75)
-  // Nordveggen (planet y = 0), ett felt per rom
-  for (const r of plan.rooms) {
-    if (r.side !== 'nord' || r.kind === 'tomt') continue
-    poly(ctx, [P(v, r.x, 0, 0), P(v, r.x + r.w, 0, 0), P(v, r.x + r.w, 0, WALL_H), P(v, r.x, 0, WALL_H)], wallN, 'rgba(40,34,28,0.25)', 0.6)
-    poly(ctx, [P(v, r.x, 0, 0), P(v, r.x + r.w, 0, 0), P(v, r.x + r.w, 0, 0.85), P(v, r.x, 0, 0.85)], blend(wallN, look.dado, 0.55))
-    const wx = r.x + r.w / 2 - 0.55
-    poly(ctx, [P(v, wx, 0, 0.95), P(v, wx + 1.1, 0, 0.95), P(v, wx + 1.1, 0, 1.8), P(v, wx, 0, 1.8)], glass, '#FFFFFF', Math.max(1, v.tw * 0.035))
-    const [mx1, my1] = P(v, wx + 0.55, 0, 0.95)
-    const [mx2, my2] = P(v, wx + 0.55, 0, 1.8)
+  poly(ctx, quad(v, 0, c.y, plan.builtW, c.h), look.lino)
+  onFloor(ctx, v, 0.002, () => {
+    ctx.translate(0, c.y * 100)
+    ctx.fillStyle = look.linoEdge
+    ctx.fillRect(0, 0, plan.builtW * 100, 22)
+    ctx.fillRect(0, c.h * 100 - 22, plan.builtW * 100, 22)
+    ctx.save()
     ctx.beginPath()
-    ctx.moveTo(mx1, my1)
-    ctx.lineTo(mx2, my2)
-    ctx.stroke()
-  }
-  // Vestgavlen (planet x = 0), med åpning for inngangen
-  const c = plan.corridor
-  const seg = (y0: number, y1: number, z0 = 0) =>
-    poly(ctx, [P(v, 0, y0, z0), P(v, 0, y1, z0), P(v, 0, y1, WALL_H), P(v, 0, y0, WALL_H)], wallW, 'rgba(40,34,28,0.25)', 0.6)
-  seg(0, c.y + 0.3)
-  seg(c.y + c.h - 0.3, plan.h)
-  seg(c.y + 0.3, c.y + c.h - 0.3, 1.75)
-  // Skilleveggene mellom nordrommene går fullt opp bakerst og skrår ned mot korridoren
-  for (const r of plan.rooms) {
-    if (r.side !== 'nord' || r.kind === 'tomt' || r.x <= 0) continue
-    poly(ctx, [P(v, r.x, 0, 0), P(v, r.x, 1.1, 0), P(v, r.x, 1.1, LOW), P(v, r.x, 0, WALL_H)], darken(wallN, 0.16), 'rgba(40,34,28,0.25)', 0.6)
-  }
-}
-
-function addWalls(sc: Scene, plan: FloorPlan, look: (typeof WARD_LOOKS)[WardTypeId]): void {
-  const color = blend('#EFE7D8', look.dado, 0.35)
-  const c = plan.corridor
-  for (const r of plan.rooms) {
-    if (r.kind === 'tomt') continue
-    // Veggen mot korridoren, med åpning for døra
-    const dy = r.door[1]
-    sc.wall(r.x, dy, r.door[0] - DOOR_W / 2, dy, color)
-    sc.wall(r.door[0] + DOOR_W / 2, dy, r.x + r.w, dy, color)
-    // Skillevegg mot rommet i vest
-    if (r.x > 0) sc.wall(r.x, r.side === 'nord' ? r.y + 1.1 : r.y, r.x, r.y + r.h, color)
-    // Ytterveggen foran er skåret ned
-    if (r.side === 'sor') sc.wall(r.x, r.y + r.h, r.x + r.w, r.y + r.h, color, 0.34)
-  }
-  // Østgavlen
-  sc.wall(plan.builtW, 0, plan.builtW, c.y + 0.5, color)
-  sc.wall(plan.builtW, c.y + c.h - 0.5, plan.builtW, plan.h, color)
-}
-
-function addDoors(sc: Scene, st: PlanDrawState, doorColors: string[] | null): void {
-  for (const r of st.plan.rooms) {
-    if (r.kind === 'tomt') continue
-    const leaf = r.kind === 'beboer' && doorColors ? doorColors[((r.bed ?? 1) - 1) % doorColors.length] : '#C4A377'
-    const [dx, dy] = r.door
-    // Dørbladet står åpent inn i rommet
-    if (r.side === 'nord') sc.box(dx - DOOR_W / 2 - 0.03, dy - 0.8, 0.06, 0.8, 1.05, leaf, 0, -0.1)
-    else sc.box(dx - DOOR_W / 2 - 0.03, dy, 0.06, 0.8, 1.05, leaf, 0, -0.1)
-  }
-}
-
-function addFigures(sc: Scene, st: PlanDrawState): void {
-  const { ctx, v } = sc
-  for (const f of st.figures) {
-    const [fx, fy] = P(v, f.x, f.y, 0)
-    if (fx < -80 || fy < -80 || fx > v.width + 80 || fy > v.height + 140) continue
-    if (f.pose === 'ligger') {
-      // Under dyna: bare hodet på puta.
-      const up = st.plan.byId[f.room ?? '']?.side === 'sor' ? 1 : -1
-      sc.items.push({
-        depth: f.x + f.y + 0.4,
-        draw: () => {
-          const [hx, hy] = P(v, f.x, f.y + up * 0.62, 0.5)
-          ctx.beginPath()
-          ctx.arc(hx, hy - v.tw * 0.03, v.tw * 0.13, 0, Math.PI * 2)
-          ctx.fillStyle = f.style.hair
-          ctx.fill()
-          ctx.beginPath()
-          ctx.arc(hx, hy + v.tw * 0.02, v.tw * 0.11, 0, Math.PI * 2)
-          ctx.fillStyle = f.style.skin
-          ctx.fill()
-        },
-      })
-      continue
-    }
-    const sitting = f.pose === 'sitter'
-    sc.items.push({
-      depth: f.x + f.y + (sitting ? 0.12 : 0.02),
-      draw: () => {
-        const [sx, sy] = P(v, f.x, f.y, sitting ? 0.3 : 0)
-        if (!sitting) {
-          ctx.beginPath()
-          ctx.ellipse(fx, fy, v.tw * 0.2, v.tw * 0.09, 0, 0, Math.PI * 2)
-          ctx.fillStyle = 'rgba(40,34,28,0.2)'
-          ctx.fill()
-        }
-        drawFigure(ctx, v, f.style, {
-          sx,
-          sy,
-          flip: f.flip,
-          away: false,
-          sitting,
-          walking: f.walking,
-          phase: f.phase,
-          time: st.time,
-          alpha: 1,
-          tired: f.kind === 'ansatt' && f.stress > 70,
-          hurry: 0,
-          carry: null,
-          aid: f.aid,
-          anim: null,
-        })
-      },
-    })
-  }
-}
-
-function pill(ctx: Ctx, v: View, at: ScreenPt, text: string, size: number, bg: string, fg: string, weight = 800): void {
-  const px = size * v.tw
-  ctx.font = `${weight} ${Math.round(px * 10) / 10}px Inter, system-ui, sans-serif`
-  const tw = ctx.measureText(text).width + px * 0.9
-  roundRect(ctx, at[0] - tw / 2, at[1] - px * 0.78, tw, px * 1.56, px * 0.5)
-  ctx.fillStyle = bg
-  ctx.fill()
-  ctx.strokeStyle = 'rgba(40,34,28,0.22)'
-  ctx.lineWidth = 0.8
-  ctx.stroke()
-  ctx.fillStyle = fg
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(text, at[0], at[1] + px * 0.04)
-}
-
-/** Skilt, lamper og lapper som alltid skal kunne leses – tegnet oppå alt annet. */
-function drawSigns(ctx: Ctx, v: View, st: PlanDrawState): void {
-  const u = v.tw
-  for (const r of st.plan.rooms) {
-    if (r.kind === 'tomt') {
-      if (u > 16) pill(ctx, v, P(v, r.x + r.w / 2, r.y + r.h / 2, 0), `Rom ${r.bed} · tomt`, 0.26, 'rgba(255,253,247,0.75)', '#6E5A3C', 700)
-      continue
-    }
-    const [dx, dy] = r.door
-    if (r.kind !== 'beboer') {
-      pill(ctx, v, r.side === 'nord' ? P(v, r.x + r.w / 2, 0, WALL_H + 0.22) : P(v, r.x + r.w / 2, r.y + r.h + 0.3, -0.1), r.label, Math.max(0.3, 9.5 / u), 'rgba(255,253,247,0.94)', '#2B3A36')
-      continue
-    }
-    const name = st.names[r.id]
-    const at = P(v, dx, dy, 1.2)
-    if (u > 26) pill(ctx, v, at, name ? `${r.bed} ${name}` : `${r.bed} Ledig`, 0.25, name ? '#FFFDF7' : '#EDE7DA', name ? '#2B3A36' : '#8A8275', 700)
-    else pill(ctx, v, at, String(r.bed), Math.max(0.3, 8 / u), '#FFFDF7', '#2B3A36')
-    // Ringesnor: lampa over døra
-    const lamp = st.lamps.get(r.id)
-    if (lamp) {
-      const [lx, ly] = P(v, dx, dy, 1.85)
-      const blink = lamp === 'ringer' ? 0.55 + 0.45 * Math.sin(st.time * 7) : 1
-      const rr = Math.max(4, u * 0.16)
+    ctx.rect(0, 22, plan.builtW * 100, c.h * 100 - 44)
+    ctx.clip()
+    tiles(93, 'rgba(30,77,64,0.08)')(ctx, plan.builtW * 100, c.h * 100)
+    ctx.restore()
+    // Dørmatte ved inngangen
+    ctx.fillStyle = '#8E7B63'
+    roundRect(ctx, 22, c.h * 50 - 55, 95, 110, 8)
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(40,30,20,0.3)'
+    ctx.lineWidth = 3
+    for (let i = 0; i < 5; i++) {
       ctx.beginPath()
-      ctx.arc(lx, ly, rr * 2.4 * blink, 0, Math.PI * 2)
-      ctx.fillStyle = lamp === 'hos' ? 'rgba(79,174,123,0.3)' : 'rgba(226,87,76,0.32)'
-      ctx.fill()
-      ctx.beginPath()
-      ctx.arc(lx, ly, rr, 0, Math.PI * 2)
-      ctx.fillStyle = lamp === 'hos' ? '#4FAE7B' : '#E2574C'
-      ctx.fill()
-      ctx.strokeStyle = '#FFFFFF'
-      ctx.lineWidth = 1.2
+      ctx.moveTo(34 + i * 18, c.h * 50 - 44)
+      ctx.lineTo(34 + i * 18, c.h * 50 + 44)
       ctx.stroke()
     }
-    // En sak på korktavla gjelder beboeren her
+  })
+}
+
+function drawBackWalls(sc: Scene, plan: FloorPlan, look: WardLook): void {
+  const { ctx, v } = sc
+  const c = plan.corridor
+  // Nordveggen og vestgavlen, med tykkelse
+  box(ctx, v, -T, -T, 0, plan.builtW + T, T, WALL_H, { top: C.wallTop, left: C.wall, right: '#D2C6B0' })
+  box(ctx, v, -T, -T, 0, T, c.y + 0.3 + T, WALL_H, { top: C.wallTop, left: '#D2C6B0', right: C.wallSide })
+  box(ctx, v, -T, c.y + c.h - 0.3, 0, T, plan.h - (c.y + c.h - 0.3), WALL_H, { top: C.wallTop, left: '#D2C6B0', right: C.wallSide })
+  box(ctx, v, -T, c.y + 0.3, 1.95, T, c.h - 0.6, WALL_H - 1.95, { top: C.wallTop, left: '#D2C6B0', right: C.wallSide })
+
+  onPlaneY(ctx, v, 0, WALL_H, () => {
+    // Hvert rom har sin egen veggfarge over en felles fotlist
+    for (const r of plan.rooms) {
+      if (r.side !== 'nord' || r.kind === 'tomt') continue
+      const tint = r.kind === 'kjokken' ? '#EEF1EC' : r.kind === 'beboer' ? ['#F7F0E3', '#F4EDE6', '#F1EEE2', '#F6ECDD'][(r.bed ?? 0) % 4] : blend('#F7F0E3', look.dado, 0.16)
+      ctx.fillStyle = tint
+      ctx.fillRect(r.x * 100, 0, r.w * 100, WALL_H * 100)
+      if (r.kind === 'kjokken') {
+        // Fliser over kjøkkenbenken
+        ctx.fillStyle = '#DCE7E6'
+        ctx.fillRect(r.x * 100 + 70, zc(1.4), r.w * 100 - 70, 52)
+        ctx.strokeStyle = 'rgba(43,91,108,0.14)'
+        ctx.lineWidth = 2
+        for (let x = r.x * 100 + 70; x < (r.x + r.w) * 100; x += 26) ctx.strokeRect(x, zc(1.4), 26, 26)
+      } else if (r.kind !== 'beboer') {
+        ctx.fillStyle = look.dado
+        ctx.fillRect(r.x * 100, zc(1.05), r.w * 100, 105)
+        ctx.fillStyle = 'rgba(30,77,64,0.25)'
+        ctx.fillRect(r.x * 100, zc(1.05), r.w * 100, 4)
+      }
+    }
+    const gr = ctx.createLinearGradient(0, 0, 0, WALL_H * 100)
+    gr.addColorStop(0, 'rgba(120,96,60,0.12)')
+    gr.addColorStop(0.5, 'rgba(120,96,60,0)')
+    ctx.fillStyle = gr
+    ctx.fillRect(0, 0, plan.builtW * 100, WALL_H * 100)
+    ctx.fillStyle = '#C6B79C'
+    ctx.fillRect(0, zc(0.11), plan.builtW * 100, 11)
+  })
+  onPlaneX(ctx, v, 0, WALL_H, () => {
+    const gr = ctx.createLinearGradient(0, 0, 0, WALL_H * 100)
+    gr.addColorStop(0, 'rgba(100,80,50,0.14)')
+    gr.addColorStop(0.6, 'rgba(100,80,50,0.02)')
+    ctx.fillStyle = gr
+    ctx.fillRect(0, 0, (c.y + 0.3) * 100, WALL_H * 100)
+    ctx.fillRect((c.y + c.h - 0.3) * 100, 0, (plan.h - c.y - c.h + 0.3) * 100, WALL_H * 100)
+    ctx.fillStyle = '#B9AA8E'
+    ctx.fillRect(0, zc(0.11), (c.y + 0.3) * 100, 11)
+    ctx.fillRect((c.y + c.h - 0.3) * 100, zc(0.11), (plan.h - c.y - c.h + 0.3) * 100, 11)
+    // Karmen rundt inngangen
+    ctx.strokeStyle = C.white
+    ctx.lineWidth = 9
+    ctx.strokeRect((c.y + 0.3) * 100, zc(1.95), (c.h - 0.6) * 100, 195)
+  })
+  for (const deco of sc.wallDecor) deco()
+  sc.wallDecor.length = 0
+}
+
+// ---------------------------------------------------------------------------
+// Vegger foran, dører og glass
+// ---------------------------------------------------------------------------
+
+/** En vegg med topplist, delt opp så figurer kan stå på begge sider. */
+function wall(sc: Scene, x0: number, y0: number, x1: number, y1: number, h: number, color: string, cap: string | null): void {
+  const alongX = Math.abs(x1 - x0) >= Math.abs(y1 - y0)
+  if ((alongX ? x1 - x0 : y1 - y0) <= 0.01) return
+  const c = { top: C.wallTop, left: color, right: darken(color, 0.1) }
+  if (alongX) {
+    sc.box(x0, y0 - T / 2, 0, x1 - x0, T, h, color, { colors: c, bias: -0.03 })
+    if (cap) sc.box(x0, y0 - T / 2 - 0.02, h, x1 - x0, T + 0.04, 0.04, cap, { bias: -0.02 })
+  } else {
+    sc.box(x0 - T / 2, y0, 0, T, y1 - y0, h, color, { colors: c, bias: -0.03 })
+    if (cap) sc.box(x0 - T / 2 - 0.02, y0, h, T + 0.04, y1 - y0, 0.04, cap, { bias: -0.02 })
+  }
+}
+
+/** Skilleveggen mellom to nordrom: full høyde innerst, og skrår ned mot korridoren. */
+function slopedPartition(sc: Scene, x: number, y0: number, y1: number, color: string): void {
+  const { ctx, v } = sc
+  const top = (y: number) => (y < y0 + 0.9 ? WALL_H : y < y0 + 2.5 ? WALL_H + ((LOW - WALL_H) * (y - y0 - 0.9)) / 1.6 : LOW)
+  const n = 8
+  for (let i = 0; i < n; i++) {
+    const a = y0 + ((y1 - y0) * i) / n
+    const b = y0 + ((y1 - y0) * (i + 1)) / n + 0.01
+    sc.add(x + (a + b) / 2 - 0.03, () => {
+      if (!sc.near(x, a, 1)) return
+      poly(ctx, [P(v, x + T / 2, a, 0), P(v, x + T / 2, b, 0), P(v, x + T / 2, b, top(b)), P(v, x + T / 2, a, top(a))], darken(color, 0.1))
+      poly(ctx, [P(v, x - T / 2, a, top(a)), P(v, x + T / 2, a, top(a)), P(v, x + T / 2, b, top(b)), P(v, x - T / 2, b, top(b))], C.wallTop)
+    })
+  }
+}
+
+/** Glass over brystningen, som mellom vaktrommet og korridoren. */
+function glass(sc: Scene, x0: number, x1: number, y: number): void {
+  if (x1 - x0 < 0.3) return
+  const { ctx, v } = sc
+  const top = 1.7
+  const n = Math.max(1, Math.round((x1 - x0) / 0.85))
+  for (let i = 0; i <= n; i++) {
+    const px = x0 + ((x1 - x0) * i) / n
+    sc.add(px + y - 0.01, () => sc.near(px, y, 1.4) && box(ctx, v, px - 0.025, y - 0.03, MID, 0.05, 0.06, top - MID, faces('#F7F5F0')))
+    if (i === n) break
+    const pw = (x1 - x0) / n
+    sc.add(px + pw / 2 + y, () => {
+      if (!sc.near(px, y, 1.4)) return
+      const pts = [P(v, px, y, MID), P(v, px + pw, y, MID), P(v, px + pw, y, top), P(v, px, y, top)]
+      poly(ctx, pts, 'rgba(210,232,240,0.24)')
+      ctx.save()
+      ctx.beginPath()
+      ctx.moveTo(pts[0][0], pts[0][1])
+      for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1])
+      ctx.clip()
+      onPlaneY(ctx, v, y, top, () => {
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)'
+        ctx.lineWidth = 5
+        ctx.beginPath()
+        for (const o of [18, 34]) {
+          ctx.moveTo(px * 100 + o + 26, 6)
+          ctx.lineTo(px * 100 + o, (top - MID) * 100 - 6)
+        }
+        ctx.stroke()
+      })
+      ctx.restore()
+      box(ctx, v, px, y - 0.03, top, pw, 0.06, 0.05, faces('#F7F5F0'))
+    })
+  }
+}
+
+function addWalls(sc: Scene, plan: FloorPlan, look: WardLook): void {
+  const cream = '#F1E9DA'
+  const dado = blend(look.dado, '#F1E9DA', 0.15)
+  const c = plan.corridor
+  for (const r of plan.rooms) {
+    if (r.kind === 'tomt') continue
+    const [dx, dy] = r.door
+    const a = dx - DOOR_W / 2 - 0.05
+    const b = dx + DOOR_W / 2 + 0.05
+    if (r.side === 'nord') {
+      // Lav vegg mot korridoren, med håndlist
+      wall(sc, r.x, dy, a, dy, LOW, dado, C.oak)
+      wall(sc, b, dy, r.x + r.w, dy, LOW, dado, C.oak)
+      if (r.x > 0) slopedPartition(sc, r.x, r.y, r.y + r.h, cream)
+    } else {
+      const common = r.kind !== 'beboer'
+      const color = common ? C.tealDark : cream
+      wall(sc, r.x, dy, a, dy, MID, color, common ? '#F7F5F0' : C.oak)
+      wall(sc, b, dy, r.x + r.w, dy, MID, color, common ? '#F7F5F0' : C.oak)
+      if (GLASS_ROOMS.has(r.kind)) {
+        glass(sc, r.x + 0.06, a, dy)
+        glass(sc, b, r.x + r.w - 0.06, dy)
+      }
+      if (r.x > 0) wall(sc, r.x, r.y, r.x, r.y + r.h, MID, cream, null)
+      // Ytterveggen foran er skåret helt ned
+      wall(sc, r.x, r.y + r.h - T / 2, r.x + r.w, r.y + r.h - T / 2, 0.2, cream, null)
+    }
+  }
+  // Østgavlen
+  wall(sc, plan.builtW - T / 2, 0, plan.builtW - T / 2, c.y + 0.35, LOW, cream, null)
+  wall(sc, plan.builtW - T / 2, c.y + c.h - 0.35, plan.builtW - T / 2, plan.h, LOW, cream, null)
+}
+
+/** Høyden på veggen mot korridoren, og punktet der ringesnorlampa sitter ved siden av døra. */
+const corridorWallH = (r: PlanRoom): number => (r.side === 'nord' ? LOW : MID)
+const lampAt = (r: PlanRoom): [number, number, number] => [r.door[0] + DOOR_W / 2 + 0.2, r.door[1], corridorWallH(r) + 0.1]
+
+function addDoors(sc: Scene, plan: FloorPlan, look: WardLook): void {
+  const { ctx, v } = sc
+  for (const r of plan.rooms) {
+    if (r.kind === 'tomt') continue
+    const [dx, dy] = r.door
+    const h = corridorWallH(r)
+    const frame = faces('#F4EEE2')
+    // Karm i veggens høyde på hver side av åpningen
+    for (const px of [dx - DOOR_W / 2 - 0.07, dx + DOOR_W / 2 + 0.01]) {
+      sc.add(px + dy - 0.01, () => sc.near(px, dy, 0.5) && box(ctx, v, px, dy - 0.08, 0, 0.06, 0.16, h + 0.07, frame))
+    }
+    if (r.kind === 'beboer') {
+      // Romnummer på veggen ved døra, og sokkelen til ringesnorlampa oppå veggen
+      const px = dx + DOOR_W / 2 + 0.1
+      sc.add(px + 0.1 + dy + T / 2 + 0.05, () => {
+        if (!sc.near(px, dy, 0.5)) return
+        box(ctx, v, px, dy + T / 2, h - 0.36, 0.22, 0.015, 0.24, { top: C.skog, left: C.skog, right: C.skog })
+        onPlaneY(ctx, v, dy + T / 2 + 0.016, h - 0.12, () => {
+          ctx.fillStyle = '#FFFFFF'
+          ctx.font = '800 17px Inter, system-ui, sans-serif'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(String(r.bed), (px + 0.11) * 100, 12.5)
+        })
+        const [lx, ly] = lampAt(r)
+        box(ctx, v, lx - 0.05, ly - 0.05, h + 0.03, 0.1, 0.1, 0.04, faces('#CFC8BA'))
+      })
+    }
+    // Dørbladet står åpent inn i rommet, skåret i samme høyde som veggen
+    const leaf = r.kind === 'beboer' && look.doorColors ? look.doorColors[((r.bed ?? 1) - 1) % look.doorColors.length] : '#C99D6B'
+    const ly = r.side === 'nord' ? dy - 0.88 : dy + 0.08
+    sc.box(dx - DOOR_W / 2 - 0.04, ly, 0, 0.05, 0.8, h, leaf, {
+      whole: true,
+      bias: -0.1,
+      side: (cx, w, hh) => {
+        cx.strokeStyle = 'rgba(90,55,25,0.3)'
+        cx.lineWidth = 2.5
+        cx.strokeRect(8, 8, w - 16, hh - 12)
+        cx.fillStyle = '#E9C46A'
+        cx.fillRect(r.side === 'nord' ? 10 : w - 18, hh * 0.3, 8, 16)
+      },
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Figurer, lamper og lys
+// ---------------------------------------------------------------------------
+
+const figureDepth = (f: PlanFigure): number => f.x + f.y + (f.pose === 'ligger' ? 0.45 : f.pose === 'sitter' ? 0.12 : 0.03)
+
+function drawOneFigure(ctx: Ctx, v: View, f: PlanFigure, time: number): void {
+  if (f.pose === 'ligger') {
+    // Under dyna: en kul i senga og hodet på puta.
+    const [hx, hy] = P(v, f.x, f.y - 0.62, 0.6)
+    ctx.beginPath()
+    ctx.arc(hx, hy - v.tw * 0.035, v.tw * 0.125, 0, Math.PI * 2)
+    ctx.fillStyle = f.style.hair
+    ctx.fill()
+    ctx.beginPath()
+    ctx.arc(hx + v.tw * 0.015, hy + v.tw * 0.02, v.tw * 0.105, 0, Math.PI * 2)
+    ctx.fillStyle = f.style.skin
+    ctx.fill()
+    return
+  }
+  const sitting = f.pose === 'sitter'
+  const [sx, sy] = P(v, f.x, f.y, sitting ? 0.42 : 0)
+  if (!sitting) {
+    const [fx, fy] = P(v, f.x, f.y, 0)
+    ctx.beginPath()
+    ctx.ellipse(fx, fy, v.tw * 0.2, v.tw * 0.09, 0, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(28,37,38,0.18)'
+    ctx.fill()
+  }
+  drawFigure(ctx, v, f.style, {
+    sx,
+    sy,
+    flip: f.flip,
+    away: false,
+    sitting,
+    walking: f.walking,
+    phase: f.phase,
+    time,
+    alpha: 1,
+    tired: f.kind === 'ansatt' && f.stress > 70,
+    hurry: 0,
+    carry: null,
+    aid: f.aid,
+    anim: null,
+  })
+}
+
+function drawPendants(sc: Scene): void {
+  const { ctx, v, L } = sc
+  for (const p of sc.pendants) {
+    if (!sc.near(p.x, p.y, 2)) continue
+    const [tx, ty] = P(v, p.x, p.y, WALL_H + 0.35)
+    const [lx, ly] = P(v, p.x, p.y, 2.05)
+    ctx.strokeStyle = 'rgba(28,37,38,0.45)'
+    ctx.lineWidth = 1 * v.s
+    ctx.beginPath()
+    ctx.moveTo(tx, ty)
+    ctx.lineTo(lx, ly - 6 * v.s)
+    ctx.stroke()
+    ctx.fillStyle = '#55595A'
+    roundRect(ctx, lx - 2 * v.s, ly - 7 * v.s, 4 * v.s, 4 * v.s, 1 * v.s)
+    ctx.fill()
+    const lit = L.lamp * p.on
+    ctx.fillStyle = lit > 0.05 ? blend('#F1F1EA', '#FFF6DC', lit) : '#F1F1EA'
+    ctx.beginPath()
+    ctx.arc(lx, ly, 3.6 * v.s, 0, Math.PI * 2)
+    ctx.fill()
+    if (lit > 0.05) {
+      const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, 16 * v.s)
+      g.addColorStop(0, `rgba(255,236,196,${0.55 * lit})`)
+      g.addColorStop(1, 'rgba(255,236,196,0)')
+      ctx.fillStyle = g
+      ctx.fillRect(lx - 16 * v.s, ly - 16 * v.s, 32 * v.s, 32 * v.s)
+    }
+  }
+}
+
+/** Lyslaget tegnes i lav oppløsning – det er bare myke overganger. */
+const LIGHT_SCALE = 0.3
+
+/** Mørket om kvelden og natta, med hull og varmt skjær der lampene lyser. */
+function applyLighting(sc: Scene, canvas: HTMLCanvasElement, lc: Ctx): void {
+  const { ctx, v, L } = sc
+  if (L.dark < 0.01 && L.warm < 0.01) return
+  const q = LIGHT_SCALE
+  const lw = Math.max(1, Math.ceil(v.width * q))
+  const lh = Math.max(1, Math.ceil(v.height * q))
+  if (canvas.width !== lw || canvas.height !== lh) {
+    canvas.width = lw
+    canvas.height = lh
+  }
+  lc.setTransform(q, 0, 0, q, 0, 0)
+  lc.globalCompositeOperation = 'source-over'
+  lc.clearRect(0, 0, v.width, v.height)
+  lc.fillStyle = `rgba(14,22,48,${L.dark * 0.92})`
+  lc.fillRect(0, 0, v.width, v.height)
+  const spot = (cx: number, cy: number, r: number, squash: number, strength: number, col: string) => {
+    if (strength <= 0.01) return
+    lc.save()
+    lc.translate(cx, cy)
+    lc.scale(1, squash)
+    const g = lc.createRadialGradient(0, 0, 0, 0, 0, r)
+    g.addColorStop(0, `rgba(${col},${strength})`)
+    g.addColorStop(0.55, `rgba(${col},${strength * 0.55})`)
+    g.addColorStop(1, `rgba(${col},0)`)
+    lc.fillStyle = g
+    lc.fillRect(-r, -r, r * 2, r * 2)
+    lc.restore()
+  }
+  // Skjær hull i mørket der lampene lyser
+  lc.globalCompositeOperation = 'destination-out'
+  for (const p of sc.pendants) {
+    if (!sc.near(p.x, p.y, 1)) continue
+    const power = L.lamp * 0.8 * p.on
+    const [fx, fy] = P(v, p.x, p.y, 0)
+    spot(fx, fy, v.tw * 2.4, 0.55, power, '0,0,0')
+    const [hx, hy] = P(v, p.x, p.y, 1.4)
+    spot(hx, hy, v.tw * 1.7, 1, power * 0.6, '0,0,0')
+  }
+  for (const l of sc.lamps) {
+    if (!sc.near(l.x, l.y, l.z)) continue
+    const [ex, ey] = P(v, l.x, l.y, l.z)
+    spot(ex, ey, v.tw * l.r, 0.8, L.lamp * l.power, '0,0,0')
+  }
+  // Varm kveldstone og lysskjær fra lampene
+  lc.globalCompositeOperation = 'source-over'
+  if (L.warm > 0.01) {
+    lc.fillStyle = `rgba(255,150,70,${L.warm * 0.1})`
+    lc.fillRect(0, 0, v.width, v.height)
+  }
+  if (L.lamp > 0.01) {
+    for (const p of sc.pendants) {
+      if (!sc.near(p.x, p.y, 0.4)) continue
+      const [gx, gy] = P(v, p.x, p.y, 0.4)
+      spot(gx, gy, v.tw * 2.1, 1, 0.16 * L.lamp * p.on, '255,222,170')
+    }
+    for (const l of sc.lamps) {
+      if (!sc.near(l.x, l.y, l.z)) continue
+      const [gx, gy] = P(v, l.x, l.y, l.z)
+      spot(gx, gy, v.tw * l.r * 0.9, 1, 0.28 * L.lamp * l.power, l.warm ? '255,196,120' : '200,228,255')
+    }
+  }
+  ctx.save()
+  ctx.globalCompositeOperation = 'source-atop'
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(canvas, 0, 0, lw, lh, 0, 0, lw / q, lh / q)
+  ctx.restore()
+}
+
+/** Ringesnorer og lapper: det spilleren skal legge merke til, tegnet oppå alt annet. */
+function drawSignals(sc: Scene, st: PlanDrawState): void {
+  const { ctx, v } = sc
+  for (const r of st.plan.rooms) {
+    if (r.kind !== 'beboer') continue
+    const [lx, ly] = P(v, ...lampAt(r))
+    const lamp = st.lamps.get(r.id)
+    const rr = Math.max(2, v.tw * 0.055)
+    ctx.beginPath()
+    ctx.arc(lx, ly, rr, 0, Math.PI * 2)
+    ctx.fillStyle = lamp ? '#FFFFFF' : '#E9E4D8'
+    ctx.fill()
+    if (lamp) {
+      // Som varsellampa over pasientdørene i vaktrommet: prikk, ring og glød
+      const col = lamp === 'hos' ? '79,174,123' : lamp === 'paa-vei' ? '233,170,60' : '226,71,60'
+      const pulse = lamp === 'ringer' ? 0.5 + 0.5 * Math.sin(st.time * 6) : 0.6
+      const big = Math.max(11, v.tw * 0.42)
+      const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, big * 1.9)
+      g.addColorStop(0, `rgba(${col},${0.42 + 0.2 * pulse})`)
+      g.addColorStop(1, `rgba(${col},0)`)
+      ctx.fillStyle = g
+      ctx.fillRect(lx - big * 2, ly - big * 2, big * 4, big * 4)
+      ctx.beginPath()
+      ctx.arc(lx, ly, big * (0.62 + 0.22 * pulse), 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(${col},0.85)`
+      ctx.lineWidth = Math.max(1.5, v.tw * 0.045)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.arc(lx, ly, big * 0.26, 0, Math.PI * 2)
+      ctx.fillStyle = `rgb(${col})`
+      ctx.fill()
+    }
     if (st.flagged.has(r.id)) {
-      const [px, py] = P(v, r.x + r.w / 2, r.y + r.h / 2, 1.5 + Math.sin(st.time * 2.4) * 0.06)
-      const s = Math.max(13, u * 0.55)
+      const [px, py] = P(v, r.x + r.w / 2, r.y + r.h / 2, 1.7 + Math.sin(st.time * 2.4) * 0.07)
+      const s = Math.max(15, v.tw * 0.6)
       ctx.save()
       ctx.translate(px, py)
       ctx.rotate(-0.08)
-      ctx.fillStyle = 'rgba(40,34,28,0.2)'
-      ctx.fillRect(-s / 2 + 1.5, -s / 2 + 2.5, s, s)
+      ctx.fillStyle = 'rgba(28,37,38,0.22)'
+      ctx.fillRect(-s / 2 + 2, -s / 2 + 3, s, s)
       ctx.fillStyle = '#FBE38A'
       ctx.fillRect(-s / 2, -s / 2, s, s)
-      ctx.fillStyle = '#7A5A12'
-      ctx.font = `900 ${s * 0.72}px Inter, system-ui, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillText('!', 0, s * 0.04)
+      ctx.fillStyle = '#C2453B'
+      ctx.beginPath()
+      ctx.arc(0, -s * 0.36, s * 0.09, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = 'rgba(90,65,10,0.6)'
+      for (let i = 0; i < 3; i++) ctx.fillRect(-s * 0.3, -s * 0.12 + i * s * 0.18, s * (0.6 - i * 0.12), s * 0.07)
       ctx.restore()
     }
   }
 }
 
-/** Mørket ute og lyset inne gjennom døgnet (0 = dag, 1 = natt). */
-const darkness = (minuteOfDay: number): number =>
-  keyframe(minuteOfDay, [
-    [0, 1],
-    [5 * 60, 1],
-    [7 * 60 + 30, 0],
-    [19 * 60, 0],
-    [22 * 60, 1],
-  ])
+/**
+ * En tegneflate som kan byttes ut under møblene. Scenen bygges én gang og
+ * tegnes både til mellomlageret og, i utsnitt, til masken rundt hver figur.
+ */
+function switchable(): { ctx: Ctx; use: (target: Ctx) => void } {
+  let target!: Ctx
+  const bound = new WeakMap<object, Map<PropertyKey, unknown>>()
+  const ctx = new Proxy({} as Ctx, {
+    get(_, key) {
+      const value = (target as unknown as Record<PropertyKey, unknown>)[key]
+      if (typeof value !== 'function') return value
+      let fns = bound.get(target)
+      if (!fns) bound.set(target, (fns = new Map()))
+      let fn = fns.get(key)
+      if (!fn) fns.set(key, (fn = (value as (...args: unknown[]) => unknown).bind(target)))
+      return fn
+    },
+    set(_, key, value) {
+      ;(target as unknown as Record<PropertyKey, unknown>)[key] = value
+      return true
+    },
+  })
+  return { ctx, use: (t) => (target = t) }
+}
 
-export function drawPlan(ctx: Ctx, cam: Camera, width: number, height: number, dpr: number, st: PlanDrawState): void {
-  const { plan } = st
-  const look = WARD_LOOKS[plan.wardType]
-  const v = viewFor(cam, width, height)
-  const dark = darkness(st.minuteOfDay)
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  ctx.lineJoin = 'round'
+/** Oppløsningstrinn for mellomlageret (piksler per enhet). */
+const CACHE_STEPS = [36, 56, 84, 120, 150]
 
-  // Tomta rundt, gangstien fram til inngangen og noen busker
-  ctx.fillStyle = blend('#B4CC9E', '#33414F', dark * 0.75)
-  ctx.fillRect(0, 0, width, height)
-  const c = plan.corridor
-  poly(ctx, quad(v, -7, c.y + 0.35, 7, c.h - 0.7), blend('#D9D2C3', '#565C66', dark * 0.7))
-  for (let i = 0; i < 12; i++) {
-    const along = -3 + i * 4.6
-    const [bx, by] = i % 2 === 0 ? P(v, along, plan.h + 1.6, 0) : P(v, -1.8, -2 + i * 1.4, 0)
-    for (const [dx, dy, r, t] of [[0, 0, 0.5, 0], [-0.16, -0.2, 0.3, 0.14]] as const) {
+const mealNow = (m: number): boolean => (m >= 505 && m < 575) || (m >= 775 && m < 845) || (m >= 1105 && m < 1160)
+
+/**
+ * Tegner avdelingskartet. Alt som står stille – gulv, vegger, møbler – tegnes
+ * til et mellomlager og kopieres derfra hvert bilde. Figurene tegnes oppå, og
+ * møblene som står foran dem brukes som maske, så de fortsatt går bak ting.
+ */
+export class PlanRenderer {
+  private readonly cache = document.createElement('canvas')
+  private readonly cctx = this.cache.getContext('2d')!
+  private readonly scratch = document.createElement('canvas')
+  private readonly sctx = this.scratch.getContext('2d')!
+  private readonly light = document.createElement('canvas')
+  private readonly lctx = this.light.getContext('2d')!
+  private readonly pen = switchable()
+  private readonly view = {} as View
+  private cacheView = {} as View
+  private sc: Scene | null = null
+  private key = ''
+  private step = 0
+  private stepAt = 0
+
+  private build(plan: FloorPlan, st: PlanDrawState, uc: number, bucketMinute: number): void {
+    const ward = plan.wardType
+    const look = WARD_LOOKS[ward]
+    const cv: View = {
+      tw: uc,
+      th: uc / 2,
+      zh: uc * 0.56,
+      s: uc / 50,
+      ox: ((plan.h + 1.2) * uc) / 2,
+      oy: (WALL_H + 0.9) * 0.56 * uc,
+      width: Math.ceil(((plan.w + plan.h + 2.4) * uc) / 2),
+      height: Math.ceil((WALL_H + 0.9) * 0.56 * uc + ((plan.w + plan.h) * uc) / 4 + 0.6 * uc),
+    }
+    this.cacheView = cv
+    this.cache.width = cv.width
+    this.cache.height = cv.height
+    this.pen.use(this.cctx)
+    Object.assign(this.view, cv)
+    const ctx = this.pen.ctx
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, cv.width, cv.height)
+    ctx.lineJoin = 'round'
+    const sc = new Scene(ctx, this.view, st.time, lighting(bucketMinute, look))
+    drawSlab(ctx, this.view, plan, look)
+    for (const room of plan.rooms) {
+      const before = sc.pendants.length
+      furnishRoom(sc, room, { ward, minuteOfDay: bucketMinute, notes: st.notes })
+      for (let i = before; i < sc.pendants.length; i++) sc.pendants[i].room = room.id
+    }
+    const c = plan.corridor
+    furnishCorridor(sc, plan.builtW, c.y, c.h, ward, plan.rooms.filter((r) => r.kind !== 'tomt').map((r) => r.door[0]))
+    drawBackWalls(sc, plan, look)
+    addWalls(sc, plan, look)
+    addDoors(sc, plan, look)
+    sc.flush()
+    this.sc = sc
+  }
+
+  draw(ctx: Ctx, cam: Camera, width: number, height: number, dpr: number, st: PlanDrawState): void {
+    const { plan } = st
+    const look = WARD_LOOKS[plan.wardType]
+    const now = performance.now()
+    // Oppløsningen følger zoomen, men bygges først om når zoomen har roet seg.
+    const wanted = CACHE_STEPS.find((s) => s >= cam.u * dpr * 0.92) ?? CACHE_STEPS[CACHE_STEPS.length - 1]
+    if (wanted !== this.step && (this.step === 0 || now - this.stepAt > 260)) this.step = wanted
+    if (wanted === this.step) this.stepAt = now
+    // Himmelen i vinduene, klokka og dekketøyet følger tida i grove trinn.
+    const bucket = Math.floor(st.minuteOfDay / 30)
+    const key = `${plan.wardType}|${plan.beds}|${this.step}|${bucket}|${mealNow(st.minuteOfDay)}|${st.notes}`
+    if (key !== this.key || !this.sc) {
+      this.key = key
+      this.build(plan, st, this.step, st.minuteOfDay)
+    }
+    const sc = this.sc!
+    const cv = this.cacheView
+    const lv = viewFor(cam, width, height)
+    const k = lv.tw / cv.tw
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, width, height)
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(this.cache, lv.ox - cv.ox * k, lv.oy - cv.oy * k, cv.width * k, cv.height * k)
+
+    // Resten tegnes direkte, i kameraets utsnitt
+    this.pen.use(ctx)
+    Object.assign(this.view, lv)
+    const v = this.view
+    sc.time = st.time
+    sc.L = lighting(st.minuteOfDay, look)
+    sc.mask = null
+    sc.margin = 2.2
+    ctx.lineJoin = 'round'
+
+    if (st.selected) {
+      const r = plan.byId[st.selected]
+      if (r && r.kind !== 'tomt') poly(ctx, quad(v, r.x + 0.08, r.y + 0.08, r.w - 0.16, r.h - 0.16, 0.006), 'rgba(224,166,60,0.16)', '#E0A63C', Math.max(2, v.tw * 0.07))
+    }
+    const followed = st.followed ? st.figures.find((f) => f.key === st.followed) : null
+    if (followed) {
+      const [sx, sy] = P(v, followed.x, followed.y, 0.006)
       ctx.beginPath()
-      ctx.arc(bx + dx * v.tw, by + dy * v.tw - v.tw * 0.2, r * v.tw, 0, Math.PI * 2)
-      ctx.fillStyle = blend(lighten('#74A873', t), '#2C4742', dark * 0.75)
+      ctx.ellipse(sx, sy, v.tw * 0.42, v.tw * 0.21, 0, 0, Math.PI * 2)
+      ctx.fillStyle = 'rgba(224,166,60,0.28)'
       ctx.fill()
+      ctx.strokeStyle = '#E0A63C'
+      ctx.lineWidth = Math.max(1.5, v.tw * 0.06)
+      ctx.stroke()
+    }
+
+    this.drawFigures(ctx, sc, st, dpr)
+    this.pen.use(ctx)
+    sc.mask = null
+    sc.margin = 2.2
+    for (const live of sc.live) live()
+
+    // Hvem er hvor: avgjør hvilke lamper som er tent om kvelden
+    const asleep = new Set<string>()
+    const occupied = new Set<string>()
+    for (const f of st.figures) {
+      if (!f.room) continue
+      if (f.pose === 'ligger') asleep.add(f.room)
+      else occupied.add(f.room)
+    }
+    for (const p of sc.pendants) {
+      const id = p.room
+      // Korridoren er dempet om natta, vaktrommet lyser, og det er mørkt der noen sover eller ingen er.
+      p.on = id === 'vaktrom' ? 1 : !id ? 1 - 0.4 * sc.L.night : asleep.has(id) && !occupied.has(id) ? 0.08 : sc.L.night > 0.5 && !occupied.has(id) ? 0.2 : 1
+    }
+    drawPendants(sc)
+    applyLighting(sc, this.light, this.lctx)
+    drawSignals(sc, st)
+  }
+
+  /** Figurene, bakfra og fram. Hver tegnes for seg og får møblene foran seg skåret ut. */
+  private drawFigures(ctx: Ctx, sc: Scene, st: PlanDrawState, dpr: number): void {
+    const v = this.view
+    const bw = Math.ceil(v.tw * 1.7)
+    const bh = Math.ceil(v.tw * 2.3)
+    const sw = Math.ceil(bw * dpr)
+    const sh = Math.ceil(bh * dpr)
+    if (this.scratch.width < sw || this.scratch.height < sh) {
+      this.scratch.width = sw
+      this.scratch.height = sh
+    }
+    const figures = [...st.figures].sort((a, b) => figureDepth(a) - figureDepth(b))
+    sc.margin = 1.1
+    for (const f of figures) {
+      const [fx, fy] = P(v, f.x, f.y, 0)
+      const bx = Math.round(fx - bw / 2)
+      const by = Math.round(fy - bh + v.tw * 0.45)
+      if (bx > v.width || by > v.height || bx + bw < 0 || by + bh < 0) continue
+      const s = this.sctx
+      s.setTransform(1, 0, 0, 1, 0, 0)
+      s.globalCompositeOperation = 'source-over'
+      s.clearRect(0, 0, sw, sh)
+      s.setTransform(dpr, 0, 0, dpr, -bx * dpr, -by * dpr)
+      this.pen.use(s)
+      drawOneFigure(this.pen.ctx, v, f, st.time)
+      // Alt som står foran figuren visker den ut der det dekker
+      s.globalCompositeOperation = 'destination-out'
+      sc.mask = { x: bx, y: by, w: bw, h: bh }
+      sc.drawInFront(figureDepth(f), f.x, f.y)
+      s.globalCompositeOperation = 'source-over'
+      ctx.drawImage(this.scratch, 0, 0, sw, sh, bx, by, bw, bh)
     }
   }
-
-  drawFloors(ctx, v, st, look)
-  drawBackWalls(ctx, v, st, look, dark)
-
-  if (st.selected) {
-    const r = plan.byId[st.selected]
-    if (r) poly(ctx, quad(v, r.x + 0.06, r.y + 0.06, r.w - 0.12, r.h - 0.12, 0.01), 'rgba(224,166,60,0.2)', '#E0A63C', Math.max(2, v.tw * 0.07))
-  }
-  const followed = st.followed ? st.figures.find((f) => f.key === st.followed) : null
-  if (followed) {
-    const [sx, sy] = P(v, followed.x, followed.y, 0)
-    ctx.beginPath()
-    ctx.ellipse(sx, sy, v.tw * 0.42, v.tw * 0.21, 0, 0, Math.PI * 2)
-    ctx.fillStyle = 'rgba(224,166,60,0.25)'
-    ctx.fill()
-    ctx.strokeStyle = '#E0A63C'
-    ctx.lineWidth = Math.max(1.5, v.tw * 0.06)
-    ctx.stroke()
-  }
-
-  const sc = new Scene(ctx, v)
-  for (const room of plan.rooms) furnish(sc, room, plan.wardType, st)
-  addWalls(sc, plan, look)
-  addDoors(sc, st, look.doorColors)
-  addFigures(sc, st)
-  sc.flush()
-
-  // Kveld og natt: mørkt ute og dempet inne, med varmt lys der noen er våkne.
-  if (dark > 0.01) {
-    ctx.fillStyle = `rgba(26,34,60,${0.44 * dark})`
-    ctx.fillRect(0, 0, width, height)
-    ctx.save()
-    ctx.globalCompositeOperation = 'lighter'
-    const glow = (x: number, y: number, r: number, a: number) => {
-      const [sx, sy] = P(v, x, y, 0.6)
-      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r * v.tw)
-      g.addColorStop(0, `rgba(255,214,150,${a * dark})`)
-      g.addColorStop(1, 'rgba(255,214,150,0)')
-      ctx.fillStyle = g
-      ctx.fillRect(sx - r * v.tw, sy - r * v.tw, r * 2 * v.tw, r * 2 * v.tw)
-    }
-    glow(plan.byId.vaktrom.x + 2.2, plan.byId.vaktrom.y + 2.2, 2.6, 0.32)
-    for (let x = 2; x < plan.builtW; x += 5) glow(x, c.y + c.h / 2, 1.8, 0.14)
-    for (const f of st.figures) if (f.kind === 'beboer' && f.pose !== 'ligger' && f.room) glow(f.x, f.y, 1.5, 0.2)
-    ctx.restore()
-  }
-
-  drawSigns(ctx, v, st)
 }

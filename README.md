@@ -68,14 +68,18 @@ supabase/migrations/   Databaseskjema (ikke kjørt automatisk)
 
 ## Avdelingskartet
 
-Hjem-skjermen viser hele avdelingen i 2.5D, i samme skrå vinkel som vaktrommet (`src/components/ward/WardMap.tsx`): en korridor med fellesrom i vest og **ett rom per beboer** i øst. Kartet kan dras, knipes og zoomes, og et trykk på et rom åpner det.
+Hjem-skjermen viser hele avdelingen som et 2.5D-diorama i samme stil som vaktrommet (`src/components/ward/WardMap.tsx`): en korridor med fellesrom i vest og **ett rom per beboer** i øst. Kartet kan dras, knipes og zoomes, og et trykk på et rom åpner det. Det står ingen navn i bildet – rommene skal kjennes igjen på innredningen.
 
-- **Planløsning** (`plan/floorPlan.ts`): en ren funksjon av avdelingstype og sengetall. Fellesrommene er vaktrom, medisinrom, kontor, møterom, kjøkken, spisestue og stue. Rom som ikke er bygd ennå står som byggetomter i enden av fløyen, så utbyggingen synes. Fordi planen ikke leser spilltilstanden direkte, kan samme kode senere tegne etasjer du har overlevert.
-- **Figurer** (`plan/planAgents.ts`): beboerne følger en døgnrytme – seng om natta, frokost, middag og kvelds i spisestua, og stue, lenestol eller rusletur imellom. Pleierne går mellom rommene, samles i vaktrommet til rapport og rykker ut når en ringesnor lyser over en dør. Presset på vakta styrer hvor ofte det ringer.
+- **Planløsning** (`plan/floorPlan.ts`): en ren funksjon av avdelingstype og sengetall. Fellesrommene er vaktrom, medisinrom, kontor, møterom, kjøkken, spisestue og stue. Rom som ikke er bygd ennå står som byggetomter i enden av fløyen. Fordi planen ikke leser spilltilstanden direkte, kan samme kode senere tegne etasjer du har overlevert.
+- **Byggesett** (`plan/planKit.ts`): scenen og møblene – stoler, bord, benkeskap, senger, lenestoler, sofa, planter, lamper, skjermer, vinduer med himmel og gardiner – satt sammen av de samme isometriske boksene og flatene som vaktrommet bruker.
+- **Innredning** (`plan/planRooms.ts`): hvert rom har sitt eget gulv, sin veggpynt og sine møbler. Beboerrommene har bad, seng, nattbord, lenestol og kommode, med dyne, teppe, gardiner og bilder som varierer fra rom til rom.
+- **Bygget** (`plan/drawPlan.ts`): bakveggene (nord og vest) står i full høyde; veggene foran er skåret ned, og fellesrommene i sør har glass over brystningen, så man ser inn i alle rom. Om kvelden legger et lyslag mørke over scenen med hull der lampene lyser: vaktrommet og korridoren er tent, mens det er mørkt der noen sover.
+- **Ytelse**: alt som står stille tegnes til et mellomlager og kopieres derfra hvert bilde. Figurene tegnes oppå, én og én, og møblene som står foran dem brukes som maske – slik går de fortsatt bak bord og vegger uten at hele scenen må tegnes på nytt.
+- **Figurer** (`plan/planAgents.ts`): beboerne følger en døgnrytme – seng om natta, frokost, middag og kvelds i spisestua, og stue, lenestol eller rusletur imellom. Pleierne går mellom rommene, samles i vaktrommet til rapport og rykker ut når en ringesnor lyser ved en dør. Presset på vakta styrer hvor ofte det ringer.
 - **Romark** (`RoomSheet.tsx`): beboerrom viser profil, pleietyngde, liggetid og saker på korktavla; fellesrom viser hva rommet brukes til og gir snarvei til avvik, pårørendesamtaler, turnus og måltider. **Følg** lar kameraet holde seg på en beboer eller en ansatt.
-- **Vaktrommet** er nærbildet: den detaljerte 2.5D-scenen åpnes fra bryteren over kartet eller fra vaktrommet på kartet.
+- **Vaktrommet** er nærbildet: den opprinnelige scenen åpnes fra bryteren over kartet eller fra vaktrommet på kartet.
 
-Kartet er pynt oppå spilltilstanden og endrer den aldri. I utvikling ligger figurene på `__vaktrommetMap.crowd`.
+Kartet er pynt oppå spilltilstanden og endrer den aldri. I utvikling ligger figurene på `__vaktrommetMap.crowd`, og `__vaktrommetMap.clock = 23 * 60` viser avdelingen på et valgt klokkeslett.
 
 ## Avdelingsvisningen
 

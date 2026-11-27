@@ -132,6 +132,7 @@ export function WardTab({ onGoToRoster, onNavigate }: { onGoToRoster: () => void
               coverage={ev.coverage}
               avgStress={avgStress}
               flaggedRooms={flaggedRooms}
+              notes={game.dilemmas.active.length}
               selected={room?.id ?? null}
               followed={followedName ? followed : null}
               onRoom={setRoom}

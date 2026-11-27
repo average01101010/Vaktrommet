@@ -204,7 +204,7 @@ export class PlanCrowd {
   private make(key: string, kind: PlanFigure['kind'], name: string, at: Pt, room: string | null, style: FigureStyle, speed: number, aid: Aid | null): PlanFigure {
     return {
       key, kind, name, x: at[0], y: at[1], path: [], room, goal: '', goalRoom: room, speed, baseSpeed: speed, pose: 'staar', restPose: 'staar',
-      flip: 1, phase: Math.random() * 6, walking: false, style, aid, lane: (Math.random() - 0.5) * 1.1, wait: Math.random() * 3,
+      flip: 1, phase: Math.random() * 6, walking: false, style, aid, lane: -0.55 + Math.random() * 0.9, wait: Math.random() * 3,
       answering: null, stress: 0,
     }
   }
@@ -345,7 +345,7 @@ export class PlanCrowd {
       return
     }
     if (meal && roll < 0.5) {
-      const at: Pt = [plan.byId.spisestue.spots.server[0] + Math.random() * 3.4, plan.byId.spisestue.spots.server[1] + (Math.random() < 0.5 ? 0 : 1.2)]
+      const at: Pt = [plan.byId.spisestue.spots.server[0] + Math.random() * 3.6, plan.byId.spisestue.spots.server[1]]
       sendTo(plan, f, { id: `server-${Math.random()}`, room: 'spisestue', at, pose: 'staar' })
     } else if (meal && roll < 0.65) {
       sendTo(plan, f, { id: 'kjokken', room: 'kjokken', at: plan.byId.kjokken.spots.benk, pose: 'staar' })
@@ -356,7 +356,7 @@ export class PlanCrowd {
     } else if (roll < 0.7) {
       sendTo(plan, f, { id: 'medisin', room: 'medisinrom', at: plan.byId.medisinrom.spots[Math.random() < 0.5 ? 'skap' : 'benk'], pose: 'staar' })
     } else if (roll < 0.8) {
-      sendTo(plan, f, { id: 'stue', room: 'stue', at: [plan.byId.stue.x + 1 + Math.random() * 2.4, plan.byId.stue.y + 3.2], pose: 'staar' })
+      sendTo(plan, f, { id: 'stue', room: 'stue', at: [plan.byId.stue.x + 1.6 + Math.random() * 1.4, plan.byId.stue.y + 3.5], pose: 'staar' })
     } else if (roll < 0.9) {
       sendTo(plan, f, { id: 'pc', room: 'vaktrom', at: vaktrom.spots.pc, pose: 'sitter' })
       f.wait += 4 * calm

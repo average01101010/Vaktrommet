@@ -82,45 +82,41 @@ export const COMMON_W = COMMON_NORTH.reduce((n, r) => n + r.w, 0)
 export const DINING_SEATS = MAX_BEDS
 export const LOUNGE_SEATS = 6
 
-/** Plasser i et rom, gitt i romlokale koordinater der «inn» er bort fra døra. */
-function spotsFor(kind: RoomKind, w: number, h: number): Record<string, Pt> {
-  // u: langs veggen (0–w), v: fra døra og innover (0–h)
+/**
+ * Plasser i et rom, gitt romlokalt: a langs korridoren (øst) og b fra
+ * nordveggen og sørover. De følger møblene i plan/planRooms.ts.
+ */
+function spotsFor(kind: RoomKind, side: 'nord' | 'sor'): Record<string, Pt> {
   switch (kind) {
     case 'beboer':
-      return { seng: [w * 0.32, h - 1.25], stol: [w - 0.75, 1.5], besok: [w - 0.8, h - 1.5], inne: [w * 0.5, 1.9] }
+      return side === 'nord'
+        ? { seng: [0.67, 1.35], stol: [2.15, 2.4], besok: [1.9, 3.35], inne: [1.3, 3.2] }
+        : { seng: [0.67, 1.8], stol: [2.15, 1.55], besok: [1.9, 2.5], inne: [1.45, 1.15] }
     case 'tomt':
       return {}
     case 'vaktrom':
       return {
-        s1: [1.25, 2.0], s2: [2.15, 2.0], s3: [1.25, 3.25], s4: [2.15, 3.25], s5: [0.75, 2.6], s6: [2.65, 2.6],
-        pc: [w - 0.85, h - 1.05], tavle: [w * 0.5, 1.0], kaffe: [0.75, h - 0.95],
+        s1: [1.9, 1.38], s2: [2.7, 1.38], s3: [1.9, 3.05], s4: [2.7, 3.05], s5: [1.15, 2.22], s6: [3.45, 2.22],
+        pc: [1.05, 3.25], tavle: [0.95, 1.2], kaffe: [3.5, 1.1],
       }
     case 'medisinrom':
-      return { skap: [w * 0.5, h - 1.15], benk: [w * 0.5, 2.0] }
+      return { skap: [2.0, 1.0], benk: [1.05, 1.9] }
     case 'kontor':
-      return { pult: [w * 0.5, h - 1.35], gjest: [w * 0.5, 1.7] }
+      return { pult: [1.68, 3.35], gjest: [1.68, 1.75] }
     case 'moterom':
-      return { s1: [0.85, 1.75], s2: [w - 0.85, 1.75], s3: [0.85, 2.9], s4: [w - 0.85, 2.9] }
+      return { s1: [0.62, 1.9], s2: [2.28, 1.9], s3: [0.62, 2.75], s4: [2.28, 2.75] }
     case 'kjokken':
-      return { benk: [w * 0.45, h - 1.2], tralle: [w - 0.8, 1.5] }
+      return { benk: [1.9, 1.15], tralle: [2.6, 2.7] }
     case 'spisestue': {
-      const spots: Record<string, Pt> = { server: [0.6, 1.3] }
-      const perRow = DINING_SEATS / 2
-      for (let i = 0; i < DINING_SEATS; i++) {
-        const col = Math.floor(i / 2)
-        const u = 0.75 + (col * (w - 1.5)) / (perRow - 1)
-        spots[`sete${i + 1}`] = [u, i % 2 === 0 ? 1.75 : 3.25]
-      }
+      const spots: Record<string, Pt> = { server: [0.6, 3.75] }
+      for (let i = 0; i < DINING_SEATS; i++) spots[`sete${i + 1}`] = [0.85 + Math.floor(i / 2) * 0.52, i % 2 === 0 ? 1.72 : 3.1]
       return spots
     }
-    case 'stue': {
-      const spots: Record<string, Pt> = { tv: [w * 0.5, h - 0.5] }
-      for (let i = 0; i < LOUNGE_SEATS; i++) {
-        const row = Math.floor(i / 3)
-        spots[`sete${i + 1}`] = [0.95 + (i % 3) * ((w - 1.9) / 2), 1.35 + row * 1.05]
+    case 'stue':
+      return {
+        sete1: [0.62, 1.8], sete2: [0.62, 2.3], sete3: [0.62, 2.8],
+        sete4: [1.6, 1.0], sete5: [2.45, 1.0], sete6: [3.3, 2.75],
       }
-      return spots
-    }
   }
 }
 
@@ -135,10 +131,8 @@ function makeRoom(
 ): PlanRoom {
   const y = side === 'nord' ? 0 : ROOM_DEPTH + CORRIDOR_H
   const h = ROOM_DEPTH
-  const local = spotsFor(kind, w, h)
   const spots: Record<string, Pt> = {}
-  // Nordrom har døra nederst, sørrom øverst: «innover» snus deretter.
-  for (const [name, [u, v]] of Object.entries(local)) spots[name] = [x + u, side === 'nord' ? y + h - v : y + v]
+  for (const [name, [a, b]] of Object.entries(spotsFor(kind, side))) spots[name] = [x + a, y + b]
   const doorX = kind === 'beboer' || kind === 'tomt' ? x + w * 0.5 : x + Math.min(w - 0.9, Math.max(0.9, w * 0.5))
   return {
     id,

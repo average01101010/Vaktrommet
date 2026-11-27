@@ -4,7 +4,7 @@ import { liveMinute, MIN_PER_DAY, MIN_PER_SHIFT, minuteOfDay } from '@/engine/ti
 import { sound } from '@/services/sound'
 import type { WardTypeId } from '@/types'
 import type { AgentInput } from './scene/agents'
-import { drawPlan, fitCamera as fitPlan, panBy, toWorld, type Camera } from './plan/drawPlan'
+import { fitCamera as fitPlan, panBy, PlanRenderer, toWorld, type Camera } from './plan/drawPlan'
 import { bedRoomId, buildFloorPlan, roomAt, type FloorPlan, type PlanRoom } from './plan/floorPlan'
 import { PlanCrowd, type PlanResidentInput } from './plan/planAgents'
 
@@ -21,6 +21,8 @@ export interface WardMapProps {
   avgStress: number
   /** Romnumre der beboeren har en sak på korktavla. */
   flaggedRooms: number[]
+  /** Antall lapper på korktavla. */
+  notes: number
   selected: string | null
   /** Figuren kameraet følger: `b<beboer-id>` eller `a<ansatt-id>`. */
   followed: string | null
@@ -61,7 +63,10 @@ export function WardMap(props: WardMapProps) {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     const crowd = new PlanCrowd()
-    if (import.meta.env.DEV) Object.assign(window, { __vaktrommetMap: { crowd } })
+    const renderer = new PlanRenderer()
+    // Til utprøving i konsollen: __vaktrommetMap.clock = 23 * 60 viser avdelingen kl. 23.
+    const dev: { crowd: PlanCrowd; clock: number | null } = { crowd, clock: null }
+    if (import.meta.env.DEV) Object.assign(window, { __vaktrommetMap: dev })
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     let w = 1
@@ -72,7 +77,7 @@ export function WardMap(props: WardMapProps) {
     let userMoved = false
     const limits = () => {
       const fit = fitCamera(planRef.current, w, h)
-      return { min: fit.u * 0.8, max: Math.max(fit.u * 1.2, 96) }
+      return { min: fit.u * 0.8, max: Math.max(fit.u * 1.2, 110) }
     }
     const constrain = () => {
       const p = planRef.current
@@ -215,13 +220,14 @@ export function WardMap(props: WardMapProps) {
         constrain()
       }
       const shown = liveMinute(p, Date.now())
+      const mod = dev.clock ?? minuteOfDay(shown)
       const intoShift = ((shown % MIN_PER_SHIFT) + MIN_PER_SHIFT) % MIN_PER_SHIFT
       const shift = SHIFT_ORDER[Math.floor((((shown % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY) / MIN_PER_SHIFT)] ?? 'dag'
       const urgency = p.crew.length === 0 ? 1 : clamp(Math.max((0.85 - p.coverage) / 0.45, (p.avgStress - 35) / 40), 0, 1)
       crowd.update(reduced ? dt * 0.6 : dt, plan, p.residents, p.crew, p.staffNames, {
-        minuteOfDay: minuteOfDay(shown),
+        minuteOfDay: mod,
         day: Math.floor(shown / MIN_PER_DAY),
-        night: shift === 'natt',
+        night: dev.clock !== null ? mod >= 22 * 60 || mod < 6 * 60 : shift === 'natt',
         rapport: MIN_PER_SHIFT - intoShift <= RAPPORT_MINUTES || intoShift < RAPPORT_MINUTES,
         urgency,
       })
@@ -238,16 +244,14 @@ export function WardMap(props: WardMapProps) {
         }
       }
 
-      const names: Record<string, string> = {}
-      for (const r of p.residents) names[bedRoomId(r.room)] = r.name.split(' ')[0]
-      drawPlan(ctx, cam, w, h, dpr, {
+      renderer.draw(ctx, cam, w, h, dpr, {
         plan,
         figures: crowd.figures,
         lamps: crowd.lamps,
-        minuteOfDay: minuteOfDay(shown),
+        minuteOfDay: mod,
         time: reduced ? time * 0.4 : time,
-        names,
         flagged: new Set(p.flaggedRooms.map(bedRoomId)),
+        notes: p.notes,
         selected: p.selected,
         followed: p.followed,
       })
